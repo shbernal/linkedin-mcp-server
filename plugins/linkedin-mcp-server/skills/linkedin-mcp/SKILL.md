@@ -45,8 +45,8 @@ instances, clear profiles, or replace the user's browser session.
   `get_job_apply_url`.
 - Content: `get_feed` and `search_posts`.
 - Messages: `get_inbox`, `get_conversation`, and `search_conversations`.
-- Writes: `send_message` and `connect_with_person`, subject to the explicit
-  authorization rules above.
+- Writes: `send_message`, `connect_with_person`, `unsave_job` and
+  `archive_job`, subject to the explicit authorization rules above.
 - Session: `get_session_status` says whether a login is saved without opening
   a browser or a login window; it does not prove LinkedIn still accepts it.
 - Cleanup: use `close_session` only when the user asks to end the managed

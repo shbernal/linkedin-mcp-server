@@ -11,7 +11,10 @@ import pytest
 from patchright.async_api import Error as PatchrightError
 from patchright.async_api import TimeoutError as PlaywrightTimeoutError
 
-from linkedin_mcp_server.core.exceptions import AuthenticationError
+from linkedin_mcp_server.core.exceptions import (
+    AuthenticationError,
+    LinkedInOperationError,
+)
 from linkedin_mcp_server.linkedin import jobs as jobs_module
 from linkedin_mcp_server.linkedin.capture import (
     CaptureMode,
@@ -27,12 +30,13 @@ from linkedin_mcp_server.linkedin.job_pages import (
     JobApplyRead,
     JobPageCapture,
     JobPageReader,
+    TrackerListing,
 )
 from linkedin_mcp_server.linkedin.jobs import JobReader
 from linkedin_mcp_server.linkedin.link_metadata import Reference
 from linkedin_mcp_server.linkedin.navigation import PageNavigator
 from linkedin_mcp_server.linkedin.session import PageSession
-from linkedin_mcp_server.linkedin.text import JOB_APPLY_EN_US
+from linkedin_mcp_server.linkedin.text import JOB_APPLY_EN_US, JOB_TRACKER_EN_US
 from linkedin.support.navigation import navigate
 
 
@@ -3670,3 +3674,141 @@ class TestGetSavedJobs:
             },
             {"kind": "job", "url": "/jobs/view/200/", "text": "Two"},
         ]
+
+
+class TestTrackerActions:
+    """unsave_job and archive_job, over a stubbed tracker page reader."""
+
+    @staticmethod
+    def _stub(reader, outcome, *listings):
+        act = patch.object(
+            reader._pages,
+            "act_on_tracker_card",
+            new_callable=AsyncMock,
+            return_value=outcome,
+        )
+        read = patch.object(
+            reader._pages,
+            "read_tracker_listing",
+            new_callable=AsyncMock,
+            side_effect=list(listings),
+        )
+        sleep = patch(
+            "linkedin_mcp_server.linkedin.jobs.asyncio.sleep", new_callable=AsyncMock
+        )
+        return act, read, sleep
+
+    async def test_unsave_chooses_unsave_on_the_saved_tab_and_rechecks(self, mock_page):
+        reader = _reader(mock_page)
+        act, read, sleep = self._stub(reader, "removed", TrackerListing(False, 2))
+        with act as acting, read as reading, sleep:
+            result = await reader.unsave_job("/jobs/view/4400000101/")
+
+        acting.assert_awaited_once_with(
+            "saved", "4400000101", JOB_TRACKER_EN_US.unsave_item
+        )
+        reading.assert_awaited_once_with("saved", "4400000101")
+        assert result == {
+            "url": "https://www.linkedin.com/jobs-tracker/?stage=saved",
+            "job_id": "4400000101",
+            "saved": False,
+            "already_unsaved": False,
+        }
+
+    async def test_a_job_the_saved_tab_lacks_is_already_unsaved(self, mock_page):
+        reader = _reader(mock_page)
+        act, read, sleep = self._stub(reader, "absent")
+        with act, read as reading, sleep:
+            result = await reader.unsave_job("123")
+
+        reading.assert_not_awaited()
+        assert result["already_unsaved"] is True
+
+    async def test_a_removal_undone_by_a_reload_is_an_error(self, mock_page):
+        reader = _reader(mock_page)
+        act, read, sleep = self._stub(reader, "removed", TrackerListing(True, 3))
+        with act, read, sleep:
+            with pytest.raises(LinkedInOperationError, match="back after a reload"):
+                await reader.unsave_job("123")
+
+    @pytest.mark.parametrize(
+        ("outcome", "message"),
+        [
+            ("beyond_first_page", "not on the first page"),
+            ("no_menu", "menu could not be found"),
+            ("no_item", "has no 'Unsave' item"),
+            ("not_removed", "stayed in"),
+        ],
+    )
+    async def test_an_action_that_did_not_happen_is_an_error(
+        self, mock_page, outcome, message
+    ):
+        reader = _reader(mock_page)
+        act, read, sleep = self._stub(reader, outcome)
+        with act, read, sleep:
+            with pytest.raises(LinkedInOperationError, match=message):
+                await reader.unsave_job("123")
+
+    async def test_archive_chooses_archive_on_the_named_tab(self, mock_page):
+        reader = _reader(mock_page)
+        act, read, sleep = self._stub(reader, "removed", TrackerListing(False, 9))
+        with act as acting, read as reading, sleep:
+            result = await reader.archive_job("123")
+
+        acting.assert_awaited_once_with(
+            "applied", "123", JOB_TRACKER_EN_US.archive_item
+        )
+        reading.assert_awaited_once_with("applied", "123")
+        assert result == {
+            "url": "https://www.linkedin.com/jobs-tracker/?stage=archived",
+            "job_id": "123",
+            "stage": "applied",
+            "archived": True,
+            "already_archived": False,
+        }
+
+    async def test_a_job_already_archived_is_found_there(self, mock_page):
+        reader = _reader(mock_page)
+        act, read, sleep = self._stub(reader, "absent", TrackerListing(True, 1))
+        with act, read as reading, sleep:
+            result = await reader.archive_job("123", stage="saved")
+
+        reading.assert_awaited_once_with("archived", "123")
+        assert result["already_archived"] is True
+
+    async def test_a_job_in_neither_tab_is_an_error(self, mock_page):
+        reader = _reader(mock_page)
+        act, read, sleep = self._stub(reader, "absent", TrackerListing(False, 4))
+        with act, read, sleep:
+            with pytest.raises(LinkedInOperationError, match="neither"):
+                await reader.archive_job("123")
+
+    async def test_archiving_from_the_archived_tab_is_refused(self, mock_page):
+        reader = _reader(mock_page)
+        act, read, sleep = self._stub(reader, "absent")
+        with act as acting, read, sleep:
+            with pytest.raises(ValueError):
+                await reader.archive_job("123", stage="archived")
+
+        acting.assert_not_awaited()
+
+    async def test_a_full_tab_without_the_job_asks_the_archived_tab(self, mock_page):
+        """A job archived from a full applied tab is gone from its first page."""
+        reader = _reader(mock_page)
+        act, read, sleep = self._stub(
+            reader, "beyond_first_page", TrackerListing(True, 2)
+        )
+        with act, read as reading, sleep:
+            result = await reader.archive_job("123")
+
+        reading.assert_awaited_once_with("archived", "123")
+        assert result["already_archived"] is True
+
+    async def test_a_full_tab_and_no_archived_job_is_the_paging_error(self, mock_page):
+        reader = _reader(mock_page)
+        act, read, sleep = self._stub(
+            reader, "beyond_first_page", TrackerListing(False, 2)
+        )
+        with act, read, sleep:
+            with pytest.raises(LinkedInOperationError, match="first page"):
+                await reader.archive_job("123")
