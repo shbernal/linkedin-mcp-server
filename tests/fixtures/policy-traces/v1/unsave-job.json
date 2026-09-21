@@ -1,0 +1,231 @@
+{
+  "call": {
+    "arguments": {
+      "job_id": "123"
+    },
+    "method": "unsave_job"
+  },
+  "events": [
+    {
+      "call": "unsave_job",
+      "callback_id": "callback-1",
+      "event": "framenavigated",
+      "kind": "listener.add"
+    },
+    {
+      "call": "unsave_job",
+      "extra": {
+        "target_url": "https://www.linkedin.com/jobs-tracker/?stage=saved",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-before-goto"
+    },
+    {
+      "call": "unsave_job",
+      "kind": "navigate",
+      "landed_url": "https://www.linkedin.com/jobs-tracker/?stage=saved",
+      "requested_url": "https://www.linkedin.com/jobs-tracker/?stage=saved",
+      "timeout_ms": 30000,
+      "wait_until": "domcontentloaded"
+    },
+    {
+      "call": "unsave_job",
+      "description": "goto https://www.linkedin.com/jobs-tracker/?stage=saved",
+      "kind": "boundary.stabilize",
+      "result": null
+    },
+    {
+      "call": "unsave_job",
+      "extra": {
+        "target_url": "https://www.linkedin.com/jobs-tracker/?stage=saved",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-after-goto"
+    },
+    {
+      "call": "unsave_job",
+      "kind": "boundary.auth_quick",
+      "result": null
+    },
+    {
+      "call": "unsave_job",
+      "callback_id": "callback-1",
+      "event": "framenavigated",
+      "kind": "listener.remove"
+    },
+    {
+      "call": "unsave_job",
+      "kind": "boundary.rate_limit"
+    },
+    {
+      "call": "unsave_job",
+      "dismissed": false,
+      "kind": "boundary.modal"
+    },
+    {
+      "call": "unsave_job",
+      "kind": "wait_for_selector",
+      "operation": "job_tracker_cards",
+      "selector": "main :is(a[href*=\"/jobs/view/\"], [componentkey^=\"job-card-component-ref-\"])",
+      "state": "attached",
+      "timeout_ms": 10000
+    },
+    {
+      "arg": {
+        "jobId": "123",
+        "mark": "data-mcp-tracker-menu",
+        "selector": "a[href*=\"/jobs/view/\"], [componentkey^=\"job-card-component-ref-\"]"
+      },
+      "call": "unsave_job",
+      "kind": "evaluate",
+      "operation": "job_tracker_card",
+      "program_digest": "1f723d264093"
+    },
+    {
+      "call": "unsave_job",
+      "kind": "locator.create",
+      "locator": "tracker_card_menu",
+      "parent": null,
+      "selector": "main button[data-mcp-tracker-menu]"
+    },
+    {
+      "call": "unsave_job",
+      "kind": "locator.click",
+      "locator": "tracker_card_menu",
+      "timeout_ms": 5000
+    },
+    {
+      "arg": {
+        "label": "Unsave",
+        "mark": "data-mcp-tracker-item"
+      },
+      "call": "unsave_job",
+      "kind": "evaluate",
+      "operation": "job_tracker_menu_item",
+      "program_digest": "5eaca1369d99"
+    },
+    {
+      "call": "unsave_job",
+      "kind": "locator.create",
+      "locator": "tracker_menu_item",
+      "parent": null,
+      "selector": "[data-mcp-tracker-item]"
+    },
+    {
+      "call": "unsave_job",
+      "kind": "locator.click",
+      "locator": "tracker_menu_item",
+      "timeout_ms": 5000
+    },
+    {
+      "call": "unsave_job",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.25
+    },
+    {
+      "arg": {
+        "jobId": "123",
+        "mark": "data-mcp-tracker-menu",
+        "selector": "a[href*=\"/jobs/view/\"], [componentkey^=\"job-card-component-ref-\"]"
+      },
+      "call": "unsave_job",
+      "kind": "evaluate",
+      "operation": "job_tracker_card",
+      "program_digest": "1f723d264093"
+    },
+    {
+      "call": "unsave_job",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 2.0
+    },
+    {
+      "call": "unsave_job",
+      "callback_id": "callback-2",
+      "event": "framenavigated",
+      "kind": "listener.add"
+    },
+    {
+      "call": "unsave_job",
+      "extra": {
+        "target_url": "https://www.linkedin.com/jobs-tracker/?stage=saved",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-before-goto"
+    },
+    {
+      "call": "unsave_job",
+      "kind": "navigate",
+      "landed_url": "https://www.linkedin.com/jobs-tracker/?stage=saved",
+      "requested_url": "https://www.linkedin.com/jobs-tracker/?stage=saved",
+      "timeout_ms": 30000,
+      "wait_until": "domcontentloaded"
+    },
+    {
+      "call": "unsave_job",
+      "description": "goto https://www.linkedin.com/jobs-tracker/?stage=saved",
+      "kind": "boundary.stabilize",
+      "result": null
+    },
+    {
+      "call": "unsave_job",
+      "extra": {
+        "target_url": "https://www.linkedin.com/jobs-tracker/?stage=saved",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-after-goto"
+    },
+    {
+      "call": "unsave_job",
+      "kind": "boundary.auth_quick",
+      "result": null
+    },
+    {
+      "call": "unsave_job",
+      "callback_id": "callback-2",
+      "event": "framenavigated",
+      "kind": "listener.remove"
+    },
+    {
+      "call": "unsave_job",
+      "kind": "boundary.rate_limit"
+    },
+    {
+      "call": "unsave_job",
+      "dismissed": false,
+      "kind": "boundary.modal"
+    },
+    {
+      "call": "unsave_job",
+      "kind": "wait_for_selector",
+      "operation": "job_tracker_cards",
+      "selector": "main :is(a[href*=\"/jobs/view/\"], [componentkey^=\"job-card-component-ref-\"])",
+      "state": "attached",
+      "timeout_ms": 10000
+    },
+    {
+      "arg": {
+        "jobId": "123",
+        "mark": "data-mcp-tracker-menu",
+        "selector": "a[href*=\"/jobs/view/\"], [componentkey^=\"job-card-component-ref-\"]"
+      },
+      "call": "unsave_job",
+      "kind": "evaluate",
+      "operation": "job_tracker_card",
+      "program_digest": "1f723d264093"
+    }
+  ],
+  "result": {
+    "already_unsaved": false,
+    "job_id": "123",
+    "saved": false,
+    "url": "https://www.linkedin.com/jobs-tracker/?stage=saved"
+  },
+  "scenario": "unsave_job__removed",
+  "schema_version": 1
+}

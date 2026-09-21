@@ -58,6 +58,8 @@ TOOL_DELEGATES = {
     "get_my_profile": "get_my_profile",
     "get_person_profile": "read_person",
     "get_saved_jobs": "get_saved_jobs",
+    "unsave_job": "unsave_job",
+    "archive_job": "archive_job",
     "dismiss_job": "dismiss_job",
     "get_sidebar_profiles": "get_sidebar_profiles",
     "search_companies": "search_companies",
