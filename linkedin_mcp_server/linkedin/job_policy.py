@@ -252,6 +252,28 @@ SAVED_JOBS_PATHS = frozenset({"/my-items/saved-jobs", "/jobs-tracker"})
 # parameter shows saved jobs.
 JobsTrackerStage = Literal["saved", "in_progress", "applied", "archived"]
 
+
+def tracker_stage_url(stage: JobsTrackerStage) -> str:
+    """The tracker tab listing the account's jobs at ``stage``."""
+    return f"{SAVED_JOBS_URL}?stage={stage}"
+
+
+def on_tracker_stage(url: str, stage: JobsTrackerStage) -> bool:
+    """Whether ``url`` is the tracker tab for ``stage``.
+
+    Host and parsed path rather than a substring, and the stage too: a tracker
+    that dropped it shows another tab, whose cards are not the ones asked for.
+    No parameter is the saved tab.
+    """
+    parsed = urlparse(url)
+    landed_stage = parse_qs(parsed.query).get("stage", ["saved"])[0]
+    return (
+        parsed.netloc == "www.linkedin.com"
+        and parsed.path.rstrip("/") in SAVED_JOBS_PATHS
+        and landed_stage == stage
+    )
+
+
 # The my-items lists page in 10s, unlike job search. Verified live: ?start=10
 # returns the 11th saved job, while ?start=25 lands past the end of a two-page
 # list and yields nothing.

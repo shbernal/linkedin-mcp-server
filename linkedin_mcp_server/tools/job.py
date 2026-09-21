@@ -6,7 +6,7 @@ Uses innerText extraction for resilient job data capture.
 
 import logging
 import time
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from fastmcp import Context, FastMCP
 from pydantic import Field
@@ -222,6 +222,94 @@ def register_job_tools(
         await ctx.report_progress(progress=0, total=100, message="Loading saved jobs")
 
         result = await extractor.get_saved_jobs(max_pages=max_pages, stage=stage)
+
+        await ctx.report_progress(progress=100, total=100, message="Complete")
+
+        return result
+
+    @mcp.tool(
+        timeout=tool_timeout,
+        title="Unsave Job",
+        annotations={
+            "readOnlyHint": False,
+            "destructiveHint": True,
+            "idempotentHint": True,
+            "openWorldHint": True,
+        },
+        tags={"job"},
+    )
+    @tool_errors
+    async def unsave_job(
+        job_id: str,
+        ctx: Context,
+    ) -> dict[str, Any]:
+        """
+        Remove a job from the authenticated user's saved jobs.
+
+        Works through LinkedIn's job tracker, so it also unsaves closed
+        postings, which no longer show a Save button. Only the first page of
+        saved jobs (10) is reachable. A job that is not saved, including every
+        job already applied to, returns already_unsaved: true; use archive_job
+        for those. A closed posting cannot be saved again once unsaved.
+
+        Args:
+            job_id: LinkedIn job ID (e.g., "4252026496", "3856789012")
+            ctx: FastMCP context for progress reporting
+
+        Returns:
+            Dict with url, job_id, saved (false) and already_unsaved.
+        """
+        extractor = await get_ready_extractor(ctx, tool_name="unsave_job")
+        logger.info("Unsaving job: %s", job_id)
+
+        await ctx.report_progress(progress=0, total=100, message="Opening saved jobs")
+
+        result = await extractor.unsave_job(job_id)
+
+        await ctx.report_progress(progress=100, total=100, message="Complete")
+
+        return result
+
+    @mcp.tool(
+        timeout=tool_timeout,
+        title="Archive Job",
+        annotations={
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": True,
+        },
+        tags={"job"},
+    )
+    @tool_errors
+    async def archive_job(
+        job_id: str,
+        ctx: Context,
+        stage: Literal["saved", "in_progress", "applied"] = "applied",
+    ) -> dict[str, Any]:
+        """
+        Move a job to the archived tab of LinkedIn's job tracker.
+
+        For applications that ended: an applied job cannot be unsaved, only
+        archived. Reversible from the archived tab on LinkedIn. Only the first
+        page (10 jobs) of the source tab is reachable.
+
+        Args:
+            job_id: LinkedIn job ID (e.g., "4252026496", "3856789012")
+            ctx: FastMCP context for progress reporting
+            stage: Tracker tab the job is in now: applied (default), saved or
+                in_progress.
+
+        Returns:
+            Dict with url, job_id, stage, archived (true) and already_archived,
+            which is true when the job was already in the archived tab.
+        """
+        extractor = await get_ready_extractor(ctx, tool_name="archive_job")
+        logger.info("Archiving %s job: %s", stage, job_id)
+
+        await ctx.report_progress(progress=0, total=100, message="Opening job tracker")
+
+        result = await extractor.archive_job(job_id, stage=stage)
 
         await ctx.report_progress(progress=100, total=100, message="Complete")
 

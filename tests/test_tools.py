@@ -35,6 +35,8 @@ def _make_mock_extractor(result: dict) -> MagicMock:
     mock.search_jobs = AsyncMock(return_value=result)
     mock.get_saved_jobs = AsyncMock(return_value=result)
     mock.get_job_apply_url = AsyncMock(return_value=result)
+    mock.unsave_job = AsyncMock(return_value=result)
+    mock.archive_job = AsyncMock(return_value=result)
     mock.search_people = AsyncMock(return_value=result)
     mock.get_sidebar_profiles = AsyncMock(return_value=result)
     mock.get_inbox = AsyncMock(return_value=result)
@@ -238,6 +240,8 @@ _A_VALID_CALL = [
     ("job", "get_job_apply_url", {"job_id": "4252026496"}),
     ("job", "search_jobs", {"keywords": "python"}),
     ("job", "get_saved_jobs", {}),
+    ("job", "unsave_job", {"job_id": "4252026496"}),
+    ("job", "archive_job", {"job_id": "4252026496"}),
     ("messaging", "get_inbox", {}),
     ("messaging", "get_conversation", {"linkedin_username": "alice"}),
     ("messaging", "search_conversations", {"keywords": "hello"}),
@@ -1512,6 +1516,49 @@ class TestJobTools:
         mock_extractor.get_saved_jobs.assert_awaited_once_with(
             max_pages=2, stage="saved"
         )
+
+    async def test_unsave_job(self, mock_context, serve_extractor):
+        expected = {
+            "url": "https://www.linkedin.com/jobs-tracker/?stage=saved",
+            "job_id": "12345",
+            "saved": False,
+            "already_unsaved": False,
+        }
+        mock_extractor = _make_mock_extractor(expected)
+
+        from linkedin_mcp_server.tools.job import register_job_tools
+
+        mcp = FastMCP("test")
+        register_job_tools(mcp)
+
+        serve_extractor(mock_extractor)
+        tool_fn = await get_tool_fn(mcp, "unsave_job")
+        result = await tool_fn("12345", mock_context)
+        assert result == expected
+        mock_extractor.unsave_job.assert_awaited_once_with("12345")
+
+    async def test_archive_job_defaults_to_the_applied_tab(
+        self, mock_context, serve_extractor
+    ):
+        expected = {
+            "url": "https://www.linkedin.com/jobs-tracker/?stage=archived",
+            "job_id": "12345",
+            "stage": "applied",
+            "archived": True,
+            "already_archived": False,
+        }
+        mock_extractor = _make_mock_extractor(expected)
+
+        from linkedin_mcp_server.tools.job import register_job_tools
+
+        mcp = FastMCP("test")
+        register_job_tools(mcp)
+
+        serve_extractor(mock_extractor)
+        tool_fn = await get_tool_fn(mcp, "archive_job")
+        result = await tool_fn("12345", mock_context)
+        assert result == expected
+        mock_extractor.archive_job.assert_awaited_once_with("12345", stage="applied")
 
 
 class TestGetSidebarProfilesTool:
