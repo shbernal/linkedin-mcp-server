@@ -16,6 +16,10 @@
         "coroutine": true,
         "signature": "(self, thread_id: 'str') -> 'dict[str, Any]'"
       },
+      "archive_job": {
+        "coroutine": true,
+        "signature": "(self, job_id: 'str', stage: 'JobsTrackerStage' = 'applied') -> 'dict[str, Any]'"
+      },
       "click_button_by_text": {
         "coroutine": true,
         "signature": "(self, text: 'str', *, scope: 'str' = 'main', timeout: 'int' = 5000) -> 'bool'"
@@ -107,10 +111,15 @@
       "send_message": {
         "coroutine": true,
         "signature": "(self, linkedin_username: 'str', message: 'str', *, confirm_send: 'bool', profile_urn: 'str | None' = None) -> 'dict[str, Any]'"
+      },
+      "unsave_job": {
+        "coroutine": true,
+        "signature": "(self, job_id: 'str') -> 'dict[str, Any]'"
       }
     },
     "tool_methods": [
       "archive_conversation",
+      "archive_job",
       "connect_with_person",
       "dismiss_job",
       "extract_feed",
@@ -131,7 +140,8 @@
       "search_jobs",
       "search_people",
       "search_posts",
-      "send_message"
+      "send_message",
+      "unsave_job"
     ],
     "tool_schemas": {
       "archive_conversation": {
@@ -145,6 +155,35 @@
           },
           "required": [
             "thread_id"
+          ],
+          "type": "object"
+        },
+        "output": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
+      "archive_job": {
+        "input": {
+          "additionalProperties": false,
+          "properties": {
+            "job_id": {
+              "description": "LinkedIn job ID (e.g., \"4252026496\", \"3856789012\")",
+              "type": "string"
+            },
+            "stage": {
+              "default": "applied",
+              "description": "Tracker tab the job is in now: applied (default), saved or\nin_progress.",
+              "enum": [
+                "saved",
+                "in_progress",
+                "applied"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "job_id"
           ],
           "type": "object"
         },
@@ -878,6 +917,25 @@
             "linkedin_username",
             "message",
             "confirm_send"
+          ],
+          "type": "object"
+        },
+        "output": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
+      "unsave_job": {
+        "input": {
+          "additionalProperties": false,
+          "properties": {
+            "job_id": {
+              "description": "LinkedIn job ID (e.g., \"4252026496\", \"3856789012\")",
+              "type": "string"
+            }
+          },
+          "required": [
+            "job_id"
           ],
           "type": "object"
         },
