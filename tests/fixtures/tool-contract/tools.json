@@ -3,6 +3,51 @@
     "_meta": {
       "fastmcp": {
         "tags": [
+          "job"
+        ]
+      }
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": false
+    },
+    "description": "Move a job to the archived tab of LinkedIn's job tracker.\n\nFor applications that ended: an applied job cannot be unsaved, only\narchived. Reversible from the archived tab on LinkedIn. Only the first\npage (10 jobs) of the source tab is reachable.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "job_id": {
+          "description": "LinkedIn job ID (e.g., \"4252026496\", \"3856789012\")",
+          "type": "string"
+        },
+        "stage": {
+          "default": "applied",
+          "description": "Tracker tab the job is in now: applied (default), saved or\nin_progress.",
+          "enum": [
+            "saved",
+            "in_progress",
+            "applied"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "job_id"
+      ],
+      "type": "object"
+    },
+    "name": "archive_job",
+    "outputSchema": {
+      "additionalProperties": true,
+      "type": "object"
+    },
+    "title": "Archive Job"
+  },
+  {
+    "_meta": {
+      "fastmcp": {
+        "tags": [
           "session"
         ]
       }
@@ -954,5 +999,40 @@
       "type": "object"
     },
     "title": "Send Message"
+  },
+  {
+    "_meta": {
+      "fastmcp": {
+        "tags": [
+          "job"
+        ]
+      }
+    },
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": false
+    },
+    "description": "Remove a job from the authenticated user's saved jobs.\n\nWorks through LinkedIn's job tracker, so it also unsaves closed\npostings, which no longer show a Save button. Only the first page of\nsaved jobs (10) is reachable. A job that is not saved, including every\njob already applied to, returns already_unsaved: true; use archive_job\nfor those. A closed posting cannot be saved again once unsaved.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "job_id": {
+          "description": "LinkedIn job ID (e.g., \"4252026496\", \"3856789012\")",
+          "type": "string"
+        }
+      },
+      "required": [
+        "job_id"
+      ],
+      "type": "object"
+    },
+    "name": "unsave_job",
+    "outputSchema": {
+      "additionalProperties": true,
+      "type": "object"
+    },
+    "title": "Unsave Job"
   }
 ]

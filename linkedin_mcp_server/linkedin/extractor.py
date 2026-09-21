@@ -195,6 +195,16 @@ class LinkedInExtractor:
         """List the authenticated user's jobs at one job-tracker stage."""
         return await self._jobs.get_saved_jobs(max_pages, stage)
 
+    async def unsave_job(self, job_id: str) -> dict[str, Any]:
+        """Remove a job from the account's saved jobs."""
+        return await self._jobs.unsave_job(job_id)
+
+    async def archive_job(
+        self, job_id: str, stage: JobsTrackerStage = "applied"
+    ) -> dict[str, Any]:
+        """Move a job from one job-tracker tab to the archived one."""
+        return await self._jobs.archive_job(job_id, stage)
+
     async def search_people(
         self,
         keywords: str,

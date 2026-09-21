@@ -634,6 +634,9 @@ def semantic_selector_id(selector: str) -> str:
         "main": "main",
         "[role='menu']": "profile_more_menu",
         "main li label[aria-label]": "conversation_rows",
+        'main :is(a[href*="/jobs/view/"], [componentkey^="job-card-component-ref-"])': (
+            "job_tracker_cards"
+        ),
     }
     if selector in selectors:
         return selectors[selector]
@@ -691,6 +694,8 @@ def semantic_program_id(program: str) -> str:
         ("const routeContinues", "message_confirmation_ready"),
         ("confirmations?.delete(arg.token)", "message_confirmation_dispose"),
         ("delete owner.__linkedinMcpComposer", "message_composer_dispose"),
+        ("menus.push(button)", "job_tracker_card"),
+        ("items[0].setAttribute(mark", "job_tracker_menu_item"),
         ("return {ids: ids, scoped", "job_ids"),
         ("promoted.push(id)", "job_promoted_ids"),
         ("signals.bounded && (signals.easy_apply", "job_apply_ready"),
