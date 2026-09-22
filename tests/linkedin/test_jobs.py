@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from unittest.mock import AsyncMock, patch
 from urllib.parse import parse_qs, urlparse
 
@@ -30,6 +31,7 @@ from linkedin_mcp_server.linkedin.job_pages import (
     JobApplyRead,
     JobPageCapture,
     JobPageReader,
+    TrackerCardAction,
     TrackerListing,
 )
 from linkedin_mcp_server.linkedin.jobs import JobReader
@@ -2752,9 +2754,9 @@ class TestGetSavedJobs:
     def _navigating(mock_page, texts, *, lands_on=None):
         """A page double that moves `page.url` the way a navigation does.
 
-        Leaving it fixed makes every page look like the first one, which is
-        the very thing the offset check reads. `lands_on` is the address
-        LinkedIn answers with, for a redirect that does not keep the offset.
+        Leaving it fixed makes every page look like the first one, which the
+        route guard reads. `lands_on` is the address LinkedIn answers with,
+        for a redirect somewhere else.
         """
         supply = iter(texts)
 
@@ -2763,6 +2765,43 @@ class TestGetSavedJobs:
             return captured(mock_page, next(supply))
 
         return navigate
+
+    @staticmethod
+    @contextmanager
+    def _paged(reader, mock_page, pages, *, moves=None, lands_on=None):
+        """Serve ``pages``: the first by address, the rest through the pager.
+
+        The tracker has no address for a later page, so every page after the
+        first is a pager click followed by a read of the page it left behind.
+        ``moves`` is what the pager answers, one per later page by default.
+        """
+        later = iter(pages[1:])
+        answers = iter(moves if moves is not None else ["advanced"] * (len(pages) - 1))
+
+        async def shown(*args, **kwargs):
+            return captured(mock_page, next(later))
+
+        async def advance(page_number):
+            return next(answers, "exhausted")
+
+        with (
+            patch.object(
+                reader._pages,
+                "_extract_saved_jobs_page",
+                side_effect=TestGetSavedJobs._navigating(
+                    mock_page, pages[:1], lands_on=lands_on
+                ),
+            ) as navigated,
+            patch.object(
+                reader._pages, "advance_tracker_page", side_effect=advance
+            ) as advanced,
+            patch.object(reader._pages, "read_shown_tracker_page", side_effect=shown),
+            patch(
+                "linkedin_mcp_server.linkedin.jobs.asyncio.sleep",
+                new_callable=AsyncMock,
+            ),
+        ):
+            yield navigated, advanced
 
     async def test_returns_job_ids(self, mock_page):
         reader = _reader(mock_page)
@@ -2882,12 +2921,8 @@ class TestGetSavedJobs:
         reader = _reader(mock_page)
         id_pages = iter([["100"], ["200"]])
         with (
-            patch.object(
-                reader._pages,
-                "_extract_saved_jobs_page",
-                side_effect=self._navigating(
-                    mock_page, [extracted("page one"), extracted("page two")]
-                ),
+            self._paged(
+                reader, mock_page, [extracted("page one"), extracted("page two")]
             ),
             patch.object(
                 reader._pages,
@@ -2901,30 +2936,24 @@ class TestGetSavedJobs:
                 new_callable=AsyncMock,
                 return_value=2,
             ),
-            patch(
-                "linkedin_mcp_server.linkedin.jobs.asyncio.sleep",
-                new_callable=AsyncMock,
-            ),
         ):
             result = await reader.get_saved_jobs(max_pages=2)
 
         assert result["sections"]["saved_jobs"] == "page one\n---\npage two"
 
-    async def test_pagination_uses_start_offset(self, mock_page):
-        """The my-items list pages in 10s, not the 25 used by job search."""
+    async def test_later_pages_are_clicked_out_of_the_pager(self, mock_page):
+        """The tab is opened once, and its pager serves every page after it.
+
+        `/jobs-tracker/?start=10` lands on `/jobs-tracker/` (measured
+        2026-08-21), so an address cannot ask for a later page and the
+        numbered buttons under the list are what reaches one.
+        """
         reader = _reader(mock_page)
         id_pages = iter([["100", "200"], ["300"], ["400"]])
-        urls_visited: list[str] = []
-
-        navigate = self._navigating(mock_page, [extracted("page text")] * 3)
-
-        async def mock_extract(url, *args, **kwargs):
-            urls_visited.append(url)
-            return await navigate(url)
-
         with (
-            patch.object(
-                reader._pages, "_extract_saved_jobs_page", side_effect=mock_extract
+            self._paged(reader, mock_page, [extracted("page text")] * 3) as (
+                navigated,
+                advanced,
             ),
             patch.object(
                 reader._pages,
@@ -2937,30 +2966,21 @@ class TestGetSavedJobs:
                 "_get_total_list_pages",
                 new_callable=AsyncMock,
                 return_value=None,
-            ),
-            patch(
-                "linkedin_mcp_server.linkedin.jobs.asyncio.sleep",
-                new_callable=AsyncMock,
             ),
         ):
             result = await reader.get_saved_jobs(max_pages=3)
 
         assert result["job_ids"] == ["100", "200", "300", "400"]
-        assert urls_visited == [
-            "https://www.linkedin.com/jobs-tracker/?stage=saved",
-            "https://www.linkedin.com/jobs-tracker/?stage=saved&start=10",
-            "https://www.linkedin.com/jobs-tracker/?stage=saved&start=20",
+        assert [call.args[0] for call in navigated.await_args_list] == [
+            "https://www.linkedin.com/jobs-tracker/?stage=saved"
         ]
+        assert [call.args[0] for call in advanced.await_args_list] == [2, 3]
 
     async def test_early_stop_no_new_ids(self, mock_page):
         reader = _reader(mock_page)
         id_pages = iter([["100"], ["100"]])
         with (
-            patch.object(
-                reader._pages,
-                "_extract_saved_jobs_page",
-                side_effect=self._navigating(mock_page, [extracted("text")] * 2),
-            ) as mock_extract,
+            self._paged(reader, mock_page, [extracted("text")] * 2) as (_, advanced),
             patch.object(
                 reader._pages,
                 "_extract_job_ids",
@@ -2972,17 +2992,13 @@ class TestGetSavedJobs:
                 "_get_total_list_pages",
                 new_callable=AsyncMock,
                 return_value=None,
-            ),
-            patch(
-                "linkedin_mcp_server.linkedin.jobs.asyncio.sleep",
-                new_callable=AsyncMock,
             ),
         ):
             result = await reader.get_saved_jobs(max_pages=5)
 
         assert result["job_ids"] == ["100"]
         # Stops on the repeat page rather than exhausting max_pages
-        assert mock_extract.await_count == 2
+        assert advanced.await_count == 1
 
     async def test_a_picker_without_main_is_an_auth_error(self, mock_page):
         """The picker keeps the list's address, so the route guard clears it.
@@ -3125,26 +3141,44 @@ class TestGetSavedJobs:
         assert result["job_ids"] == []
         assert "section_errors" not in result
 
-    async def test_a_dropped_offset_stops_the_list(self, mock_page):
-        """The redirect keeps the path and loses the query.
+    async def test_a_pager_that_will_not_move_stops_the_list(self, mock_page):
+        """A page the pager would not show ends the list, and says so.
 
-        Measured on 2026-08-21: `/jobs-tracker/?start=10` lands on
-        `/jobs-tracker/`, so the second request is served the first page.
-        Reading it appends the whole list to itself under `saved_jobs` before
-        the no-new-ids branch stops the loop, and every further offset costs
-        another navigation for the same page.
+        The tab has more jobs than the pages read, and nothing in a short
+        list says that by itself: an account with eleven saved jobs would get
+        ten back and read as an account with ten.
         """
         reader = _reader(mock_page)
         with (
+            self._paged(
+                reader, mock_page, [extracted("the list")], moves=["stalled"]
+            ) as (_, advanced),
             patch.object(
                 reader._pages,
-                "_extract_saved_jobs_page",
-                side_effect=self._navigating(
-                    mock_page,
-                    [extracted("the list")] * 3,
-                    lands_on="https://www.linkedin.com/jobs-tracker/",
-                ),
-            ) as mock_extract,
+                "_extract_job_ids",
+                new_callable=AsyncMock,
+                return_value=[str(100 + index) for index in range(10)],
+            ),
+            patch.object(
+                reader._pages,
+                "_get_total_list_pages",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+        ):
+            result = await reader.get_saved_jobs(max_pages=3)
+
+        assert result["sections"]["saved_jobs"] == "the list"
+        assert advanced.await_count == 1
+        assert (
+            result["section_errors"]["saved_jobs"]["error_type"] == "pagination_stopped"
+        )
+
+    async def test_a_tab_of_one_page_ends_without_an_error(self, mock_page):
+        """A tab that fits on one page renders no pager, and that is the end."""
+        reader = _reader(mock_page)
+        with (
+            self._paged(reader, mock_page, [extracted("the list")], moves=["unpaged"]),
             patch.object(
                 reader._pages,
                 "_extract_job_ids",
@@ -3157,32 +3191,75 @@ class TestGetSavedJobs:
                 new_callable=AsyncMock,
                 return_value=None,
             ),
-            patch(
-                "linkedin_mcp_server.linkedin.jobs.asyncio.sleep",
-                new_callable=AsyncMock,
-            ),
         ):
             result = await reader.get_saved_jobs(max_pages=3)
 
         assert result["job_ids"] == ["100", "200"]
-        assert result["sections"]["saved_jobs"] == "the list"
-        assert mock_extract.await_count == 2
-        # An account with eleven saved jobs gets ten and no sign of the rest,
-        # which is exactly what an account with ten saved jobs gets.
+        assert "section_errors" not in result
+
+    async def test_a_full_page_with_no_pager_is_reported(self, mock_page):
+        """Ten jobs and no pager is a pager that was not read, not an end.
+
+        LinkedIn shows one whenever the tab holds more than a page, so its
+        absence under a full page is the reader missing it.
+        """
+        reader = _reader(mock_page)
+        with (
+            self._paged(reader, mock_page, [extracted("the list")], moves=["unpaged"]),
+            patch.object(
+                reader._pages,
+                "_extract_job_ids",
+                new_callable=AsyncMock,
+                return_value=[str(100 + index) for index in range(10)],
+            ),
+            patch.object(
+                reader._pages,
+                "_get_total_list_pages",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+        ):
+            result = await reader.get_saved_jobs(max_pages=3)
+
         assert (
             result["section_errors"]["saved_jobs"]["error_type"] == "pagination_stopped"
         )
+
+    async def test_a_tab_that_runs_out_of_pages_ends_quietly(self, mock_page):
+        """The pager offering no page three is the whole tab, read."""
+        reader = _reader(mock_page)
+        id_pages = iter([["100"], ["200"]])
+        with (
+            self._paged(
+                reader,
+                mock_page,
+                [extracted("page one"), extracted("page two")],
+                moves=["advanced", "exhausted"],
+            ),
+            patch.object(
+                reader._pages,
+                "_extract_job_ids",
+                new_callable=AsyncMock,
+                side_effect=lambda **kw: next(id_pages),
+            ),
+            patch.object(
+                reader._pages,
+                "_get_total_list_pages",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+        ):
+            result = await reader.get_saved_jobs(max_pages=5)
+
+        assert result["job_ids"] == ["100", "200"]
+        assert "section_errors" not in result
 
     async def test_stops_at_total_pages(self, mock_page):
         """The pager's page count caps pagination below max_pages."""
         reader = _reader(mock_page)
         id_pages = iter([["100"], ["200"], ["300"]])
         with (
-            patch.object(
-                reader._pages,
-                "_extract_saved_jobs_page",
-                side_effect=self._navigating(mock_page, [extracted("text")] * 3),
-            ) as mock_extract,
+            self._paged(reader, mock_page, [extracted("text")] * 3) as (_, advanced),
             patch.object(
                 reader._pages,
                 "_extract_job_ids",
@@ -3195,15 +3272,11 @@ class TestGetSavedJobs:
                 new_callable=AsyncMock,
                 return_value=2,
             ) as mock_total_pages,
-            patch(
-                "linkedin_mcp_server.linkedin.jobs.asyncio.sleep",
-                new_callable=AsyncMock,
-            ),
         ):
             result = await reader.get_saved_jobs(max_pages=10)
 
         # Both pages the pager reports, and no more.
-        assert mock_extract.await_count == 2
+        assert advanced.await_count == 1
         assert mock_total_pages.await_count == 1
         assert result["job_ids"] == ["100", "200"]
 
@@ -3216,13 +3289,11 @@ class TestGetSavedJobs:
         were no more pages" — which look identical otherwise.
         """
         reader = _reader(mock_page)
-        pages = iter([extracted("first page"), extracted(RATE_LIMITED_SECTION_TEXT)])
         with (
-            patch.object(
-                reader._pages,
-                "_extract_saved_jobs_page",
-                new_callable=AsyncMock,
-                side_effect=lambda *a, **kw: captured(mock_page, next(pages)),
+            self._paged(
+                reader,
+                mock_page,
+                [extracted("first page"), extracted(RATE_LIMITED_SECTION_TEXT)],
             ),
             patch.object(
                 reader._pages,
@@ -3235,10 +3306,6 @@ class TestGetSavedJobs:
                 "_get_total_list_pages",
                 new_callable=AsyncMock,
                 return_value=None,
-            ),
-            patch(
-                "linkedin_mcp_server.linkedin.jobs.asyncio.sleep",
-                new_callable=AsyncMock,
             ),
         ):
             result = await reader.get_saved_jobs(max_pages=3)
@@ -3367,46 +3434,44 @@ class TestGetSavedJobs:
         assert "references" not in result
         assert "saved_jobs" in result["section_errors"]
 
-    async def test_a_page_count_read_that_moves_the_address_stops_the_list(
-        self, mock_page
-    ):
-        """The offset is judged after the page-count read, not before it.
+    async def test_a_later_page_that_is_not_the_tab_is_dropped(self, mock_page):
+        """The route guard judges a clicked page too, not just a navigated one.
 
-        The count is a DOM read, and the page under it can move while it
-        happens: this list is the one LinkedIn redirects, and the redirect
-        rewrites the query. The capture predates that, so an offset judged
-        from `landed_url` reads the address the extraction saw and accepts a
-        page served at some other offset, whose ids then join the list under
-        the caller's own `start`.
-
-        Only the order is under test here. The page lands exactly where it
-        was asked to, and nothing but the count read moves it, so a check
-        taken before that read passes and one taken after it stops.
+        A pager click is a page change without a navigation, so the address
+        is read where the click left it. A tab that answered with something
+        else keeps its earlier pages and says why it stopped.
         """
         reader = _reader(mock_page)
+        pages = [extracted("first page"), extracted("somewhere else")]
 
-        async def read_page(url, *args, **kwargs):
-            mock_page.url = url
-            return captured(mock_page, extracted("first page"))
-
-        async def count_pages_and_drift():
-            mock_page.url = "https://www.linkedin.com/jobs-tracker/?start=10"
-            return None
+        async def shown(*args, **kwargs):
+            mock_page.url = "https://www.linkedin.com/feed/"
+            return captured(mock_page, pages[1])
 
         with (
             patch.object(
-                reader._pages, "_extract_saved_jobs_page", side_effect=read_page
+                reader._pages,
+                "_extract_saved_jobs_page",
+                side_effect=self._navigating(mock_page, pages[:1]),
             ),
+            patch.object(
+                reader._pages,
+                "advance_tracker_page",
+                new_callable=AsyncMock,
+                return_value="advanced",
+            ),
+            patch.object(reader._pages, "read_shown_tracker_page", side_effect=shown),
             patch.object(
                 reader._pages,
                 "_extract_job_ids",
                 new_callable=AsyncMock,
                 return_value=["100"],
-            ) as mock_ids,
+            ),
             patch.object(
                 reader._pages,
                 "_get_total_list_pages",
-                side_effect=count_pages_and_drift,
+                new_callable=AsyncMock,
+                return_value=None,
             ),
             patch(
                 "linkedin_mcp_server.linkedin.jobs.asyncio.sleep",
@@ -3415,12 +3480,9 @@ class TestGetSavedJobs:
         ):
             result = await reader.get_saved_jobs(max_pages=2)
 
-        mock_ids.assert_not_awaited()
-        assert result["job_ids"] == []
-        assert result["sections"] == {}
-        assert (
-            result["section_errors"]["saved_jobs"]["error_type"] == "pagination_stopped"
-        )
+        assert result["job_ids"] == ["100"]
+        assert result["sections"]["saved_jobs"] == "first page"
+        assert "saved_jobs" in result["section_errors"]
 
     async def test_saved_references_are_capped_at_fifteen_across_pages(self, mock_page):
         """Two pages of twelve unique jobs each, and fifteen come back.
@@ -3451,11 +3513,7 @@ class TestGetSavedJobs:
             ]
         )
         with (
-            patch.object(
-                reader._pages,
-                "_extract_saved_jobs_page",
-                side_effect=self._navigating(mock_page, pages),
-            ),
+            self._paged(reader, mock_page, pages),
             patch.object(
                 reader._pages,
                 "_extract_job_ids",
@@ -3467,10 +3525,6 @@ class TestGetSavedJobs:
                 "_get_total_list_pages",
                 new_callable=AsyncMock,
                 return_value=None,
-            ),
-            patch(
-                "linkedin_mcp_server.linkedin.jobs.asyncio.sleep",
-                new_callable=AsyncMock,
             ),
         ):
             result = await reader.get_saved_jobs(max_pages=2)
@@ -3506,11 +3560,7 @@ class TestGetSavedJobs:
         ]
         id_pages = iter([["100"], ["200"]])
         with (
-            patch.object(
-                reader._pages,
-                "_extract_saved_jobs_page",
-                side_effect=self._navigating(mock_page, pages),
-            ),
+            self._paged(reader, mock_page, pages),
             patch.object(
                 reader._pages,
                 "_extract_job_ids",
@@ -3522,10 +3572,6 @@ class TestGetSavedJobs:
                 "_get_total_list_pages",
                 new_callable=AsyncMock,
                 return_value=None,
-            ),
-            patch(
-                "linkedin_mcp_server.linkedin.jobs.asyncio.sleep",
-                new_callable=AsyncMock,
             ),
         ):
             result = await reader.get_saved_jobs(max_pages=2)
@@ -3545,12 +3591,12 @@ class TestTrackerActions:
     """unsave_job and archive_job, over a stubbed tracker page reader."""
 
     @staticmethod
-    def _stub(reader, outcome, *listings):
+    def _stub(reader, outcome, *listings, pages_read=1):
         act = patch.object(
             reader._pages,
             "act_on_tracker_card",
             new_callable=AsyncMock,
-            return_value=outcome,
+            return_value=TrackerCardAction(outcome, pages_read),
         )
         read = patch.object(
             reader._pages,
@@ -3572,7 +3618,7 @@ class TestTrackerActions:
         acting.assert_awaited_once_with(
             "saved", "4400000101", JOB_TRACKER_EN_US.unsave_item
         )
-        reading.assert_awaited_once_with("saved", "4400000101")
+        reading.assert_awaited_once_with("saved", "4400000101", max_pages=1)
         assert result == {
             "url": "https://www.linkedin.com/jobs-tracker/?stage=saved",
             "job_id": "4400000101",
@@ -3596,10 +3642,21 @@ class TestTrackerActions:
             with pytest.raises(LinkedInOperationError, match="back after a reload"):
                 await reader.unsave_job("123")
 
+    async def test_a_recheck_reads_as_far_as_the_action_walked(self, mock_page):
+        """A card found on page three is rechecked over three pages, not ten."""
+        reader = _reader(mock_page)
+        act, read, sleep = self._stub(
+            reader, "removed", TrackerListing(False, 30), pages_read=3
+        )
+        with act, read as reading, sleep:
+            await reader.unsave_job("123")
+
+        reading.assert_awaited_once_with("saved", "123", max_pages=3)
+
     @pytest.mark.parametrize(
         ("outcome", "message"),
         [
-            ("beyond_first_page", "not on the first page"),
+            ("beyond_first_page", "pager stopped"),
             ("no_menu", "menu could not be found"),
             ("no_item", "has no 'Unsave' item"),
             ("not_removed", "stayed in"),
@@ -3623,7 +3680,7 @@ class TestTrackerActions:
         acting.assert_awaited_once_with(
             "applied", "123", JOB_TRACKER_EN_US.archive_item
         )
-        reading.assert_awaited_once_with("applied", "123")
+        reading.assert_awaited_once_with("applied", "123", max_pages=1)
         assert result == {
             "url": "https://www.linkedin.com/jobs-tracker/?stage=archived",
             "job_id": "123",
@@ -3657,8 +3714,10 @@ class TestTrackerActions:
 
         acting.assert_not_awaited()
 
-    async def test_a_full_tab_without_the_job_asks_the_archived_tab(self, mock_page):
-        """A job archived from a full applied tab is gone from its first page."""
+    async def test_a_tab_the_walk_could_not_finish_asks_the_archived_tab(
+        self, mock_page
+    ):
+        """A job already archived is gone from the tab it was archived from."""
         reader = _reader(mock_page)
         act, read, sleep = self._stub(
             reader, "beyond_first_page", TrackerListing(True, 2)
@@ -3675,5 +3734,5 @@ class TestTrackerActions:
             reader, "beyond_first_page", TrackerListing(False, 2)
         )
         with act, read, sleep:
-            with pytest.raises(LinkedInOperationError, match="first page"):
+            with pytest.raises(LinkedInOperationError, match="pager stopped"):
                 await reader.archive_job("123")

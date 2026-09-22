@@ -13,7 +13,7 @@
       "openWorldHint": true,
       "readOnlyHint": false
     },
-    "description": "Move a job to the archived tab of LinkedIn's job tracker.\n\nFor applications that ended: an applied job cannot be unsaved, only\narchived. Reversible from the archived tab on LinkedIn. Only the first\npage (10 jobs) of the source tab is reachable.",
+    "description": "Move a job to the archived tab of LinkedIn's job tracker.\n\nFor applications that ended: an applied job cannot be unsaved, only\narchived. Reversible from the archived tab on LinkedIn. The source\ntab's pages are walked with its pager, ten jobs at a time.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -1014,7 +1014,7 @@
       "openWorldHint": true,
       "readOnlyHint": false
     },
-    "description": "Remove a job from the authenticated user's saved jobs.\n\nWorks through LinkedIn's job tracker, so it also unsaves closed\npostings, which no longer show a Save button. Only the first page of\nsaved jobs (10) is reachable. A job that is not saved, including every\njob already applied to, returns already_unsaved: true; use archive_job\nfor those. A closed posting cannot be saved again once unsaved.",
+    "description": "Remove a job from the authenticated user's saved jobs.\n\nWorks through LinkedIn's job tracker, so it also unsaves closed\npostings, which no longer show a Save button. The tab's pages are\nwalked with its pager, ten jobs at a time. A job that is not saved,\nincluding every\njob already applied to, returns already_unsaved: true; use archive_job\nfor those. A closed posting cannot be saved again once unsaved.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {

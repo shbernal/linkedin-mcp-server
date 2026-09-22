@@ -156,66 +156,58 @@
       "section": "saved_jobs"
     },
     {
-      "call": "get_saved_jobs",
-      "callback_id": "callback-3",
-      "event": "framenavigated",
-      "kind": "listener.add",
-      "section": "saved_jobs"
-    },
-    {
-      "call": "get_saved_jobs",
-      "callback_id": "callback-4",
-      "event": "framenavigated",
-      "kind": "listener.add",
-      "section": "saved_jobs"
-    },
-    {
-      "call": "get_saved_jobs",
-      "extra": {
-        "target_url": "https://www.linkedin.com/jobs-tracker/?stage=saved&start=10",
-        "wait_until": "domcontentloaded"
+      "arg": {
+        "mark": "data-mcp-tracker-pager",
+        "page": 2
       },
-      "kind": "boundary.trace",
-      "label": "extractor-before-goto",
+      "call": "get_saved_jobs",
+      "kind": "evaluate",
+      "operation": "job_tracker_pager",
+      "program_digest": "03c4d4b69eba",
+      "section": "saved_jobs"
+    },
+    {
+      "arg": {
+        "scoped": false,
+        "selector": "a[href*=\"/jobs/view/\"], [componentkey^=\"job-card-component-ref-\"]"
+      },
+      "call": "get_saved_jobs",
+      "kind": "evaluate",
+      "operation": "job_ids",
+      "program_digest": "74cc40cf81cb",
       "section": "saved_jobs"
     },
     {
       "call": "get_saved_jobs",
-      "kind": "navigate",
-      "landed_url": "https://www.linkedin.com/jobs-tracker/?stage=saved&start=10",
-      "requested_url": "https://www.linkedin.com/jobs-tracker/?stage=saved&start=10",
+      "kind": "locator.create",
+      "locator": "tracker_pager",
+      "parent": null,
       "section": "saved_jobs",
-      "timeout_ms": 30000,
-      "wait_until": "domcontentloaded"
+      "selector": "main [data-mcp-tracker-pager]"
     },
     {
       "call": "get_saved_jobs",
-      "description": "goto https://www.linkedin.com/jobs-tracker/?stage=saved&start=10",
-      "kind": "boundary.stabilize",
-      "result": null,
+      "kind": "locator.click",
+      "locator": "tracker_pager",
+      "section": "saved_jobs",
+      "timeout_ms": 5000
+    },
+    {
+      "call": "get_saved_jobs",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.25,
       "section": "saved_jobs"
     },
     {
-      "call": "get_saved_jobs",
-      "extra": {
-        "target_url": "https://www.linkedin.com/jobs-tracker/?stage=saved&start=10",
-        "wait_until": "domcontentloaded"
+      "arg": {
+        "scoped": false,
+        "selector": "a[href*=\"/jobs/view/\"], [componentkey^=\"job-card-component-ref-\"]"
       },
-      "kind": "boundary.trace",
-      "label": "extractor-after-goto",
-      "section": "saved_jobs"
-    },
-    {
       "call": "get_saved_jobs",
-      "kind": "boundary.auth_quick",
-      "result": null,
-      "section": "saved_jobs"
-    },
-    {
-      "call": "get_saved_jobs",
-      "callback_id": "callback-4",
-      "event": "framenavigated",
-      "kind": "listener.remove",
+      "kind": "evaluate",
+      "operation": "job_ids",
+      "program_digest": "74cc40cf81cb",
       "section": "saved_jobs"
     },
     {
@@ -270,13 +262,6 @@
       "kind": "evaluate",
       "operation": "document_origin",
       "program_digest": "695b5d466ef7",
-      "section": "saved_jobs"
-    },
-    {
-      "call": "get_saved_jobs",
-      "callback_id": "callback-3",
-      "event": "framenavigated",
-      "kind": "listener.remove",
       "section": "saved_jobs"
     },
     {
