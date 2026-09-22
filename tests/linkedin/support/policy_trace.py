@@ -696,6 +696,7 @@ def semantic_program_id(program: str) -> str:
         ("confirmations?.delete(arg.token)", "message_confirmation_dispose"),
         ("delete owner.__linkedinMcpComposer", "message_composer_dispose"),
         ("menus.push(button)", "job_tracker_card"),
+        ("numbered.set(number,", "job_tracker_pager"),
         ("items[0].setAttribute(mark", "job_tracker_menu_item"),
         ("return {ids: ids, scoped", "job_ids"),
         ("promoted.push(id)", "job_promoted_ids"),

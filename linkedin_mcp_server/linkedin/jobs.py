@@ -48,6 +48,7 @@ from linkedin_mcp_server.linkedin.job_policy import (
     no_matching_jobs_section_error,
     posting_state,
     reconcile_search_references,
+    tracker_page_unreachable_section_error,
     tracker_stage_url,
 )
 from linkedin_mcp_server.linkedin.link_metadata import Reference, dedupe_references
@@ -647,8 +648,9 @@ class JobReader:
         """List the authenticated user's jobs at one job-tracker stage.
 
         Navigates to ``/jobs-tracker/?stage=<stage>``, extracts innerText and
-        job IDs from each page, and paginates with ``&start=`` offsets (10 per
-        step).
+        job IDs from each page, and reaches the pages after the first by
+        clicking the tab's pager: the tracker drops `start=` from its address
+        (#764), so no URL names a later page.
 
         Args:
             max_pages: Maximum pages to load (1-10, default 3)
@@ -658,6 +660,10 @@ class JobReader:
             {url, sections: {saved_jobs: text}, job_ids: [str]}
         """
         base_url = f"{SAVED_JOBS_URL}?stage={stage}"
+        # One address for every page: the pager keeps it while it changes the
+        # list, so this is what a failure on page three has to name too.
+        url = base_url
+        page_was_full = False
         all_job_ids: list[str] = []
         seen_ids: set[str] = set()
         page_texts: list[str] = []
@@ -674,16 +680,38 @@ class JobReader:
             if page_num > 0:
                 await asyncio.sleep(NAV_DELAY)
 
-            url = (
-                base_url
-                if page_num == 0
-                else f"{base_url}&start={page_num * SAVED_JOBS_PAGE_SIZE}"
-            )
-
             try:
-                capture = await self._pages._extract_saved_jobs_page(
-                    url, section_name="saved_jobs"
-                )
+                if page_num == 0:
+                    capture = await self._pages._extract_saved_jobs_page(
+                        url, section_name="saved_jobs"
+                    )
+                else:
+                    move = await self._pages.advance_tracker_page(page_num + 1)
+                    # A tab of one page renders no pager, so nothing being
+                    # there is the end of a list that ended. It is only worth
+                    # reporting after a full page, where a pager is what
+                    # LinkedIn shows and its absence is a page unread.
+                    if move == "exhausted" or (move == "unpaged" and not page_was_full):
+                        logger.debug(
+                            "The job tracker's %s tab ends on page %d",
+                            stage,
+                            page_num,
+                        )
+                        break
+                    if move != "advanced":
+                        logger.debug(
+                            "Could not reach page %d of the tracker's %s tab (%s)",
+                            page_num + 1,
+                            stage,
+                            move,
+                        )
+                        section_errors["saved_jobs"] = (
+                            tracker_page_unreachable_section_error(page_num + 1)
+                        )
+                        break
+                    capture = await self._pages.read_shown_tracker_page(
+                        section_name="saved_jobs"
+                    )
                 extracted = capture.section
 
                 # Rate limit first: it is the more specific diagnosis, and a
@@ -745,21 +773,12 @@ class JobReader:
                                 "LinkedIn reports %d saved-jobs pages", total_pages
                             )
 
-                # An offset that did not survive the navigation means this
-                # is the first page again, and reading it a second time
-                # appends the whole list to itself under `saved_jobs` before
-                # the no-new-ids branch stops the loop. Measured on
-                # 2026-08-21: `/jobs-tracker/?start=10` lands on
-                # `/jobs-tracker/`. Judged from where the page landed and not
-                # from that measurement, so paging works again wherever
-                # LinkedIn keeps the offset.
                 # Read here rather than taken from the capture: the page-count
                 # read above is a whole navigation's worth of opportunity for
-                # the address to move, and the capture predates it.
+                # the address to move, and the capture predates it. A page
+                # that lost `?stage=` there would hand the saved tab's ids
+                # back as the stage asked for.
                 landed_url = self._pages.current_url
-                # The tab too, for the same reason: a page-one address that
-                # lost `?stage=` has no `start` to fail on, and would hand the
-                # saved tab's ids back as the stage asked for.
                 if not _on_tracker_tab(landed_url, stage):
                     logger.debug(
                         "Saved-jobs page moved to %s while its page count "
@@ -769,22 +788,9 @@ class JobReader:
                     )
                     await self._navigator._raise_if_auth_barrier(landed_url)
                     raise RuntimeError(f"Saved jobs page moved to {landed_url}")
-                landed_start = parse_qs(urlparse(landed_url).query).get("start", ["0"])[
-                    0
-                ]
-                if landed_start != str(page_num * SAVED_JOBS_PAGE_SIZE):
-                    logger.debug(
-                        "Saved-jobs offset %d did not survive navigation "
-                        "(landed on %s), stopping",
-                        page_num * SAVED_JOBS_PAGE_SIZE,
-                        landed_url,
-                    )
-                    section_errors["saved_jobs"] = dropped_offset_section_error(
-                        page_num * SAVED_JOBS_PAGE_SIZE, landed_url
-                    )
-                    break
 
                 page_ids = await self._pages._extract_job_ids()
+                page_was_full = len(page_ids) >= SAVED_JOBS_PAGE_SIZE
                 new_ids = [jid for jid in page_ids if jid not in seen_ids]
 
                 if not new_ids:
@@ -866,8 +872,8 @@ class JobReader:
         with Change stage. A job ``stage`` does not list but the archived tab
         does is already archived; one neither lists is an error, because the
         caller named a tab it is not in. The archived tab is asked too when
-        ``stage`` holds a full page without the job, since an application tab
-        fills one quickly and a job archived from it is gone from it.
+        ``stage`` never held the job, since a job archived from it is gone
+        from it.
 
         Returns:
             {url, job_id, stage, archived: True, already_archived}
@@ -887,9 +893,8 @@ class JobReader:
                 # The caller's to correct, not a page that failed: the tab it
                 # named was read whole and does not list the job.
                 raise InvalidReferenceError(
-                    f"Job {job_id} is neither in the job tracker's {stage} tab "
-                    "nor on the first page of its archived tab. Pass the tab "
-                    "it is in as stage."
+                    f"Job {job_id} is in neither the job tracker's {stage} tab "
+                    "nor its archived one. Pass the tab it is in as stage."
                 )
         return {
             "url": tracker_stage_url("archived"),
@@ -909,7 +914,8 @@ class JobReader:
         the list is not yet a change LinkedIn kept, so the tab is loaded again
         and must not list the job either.
         """
-        outcome = await self._pages.act_on_tracker_card(stage, job_id, item)
+        action = await self._pages.act_on_tracker_card(stage, job_id, item)
+        outcome = action.outcome
         tab = f"the job tracker's {stage} tab"
         if outcome == "no_menu":
             raise LinkedInOperationError(
@@ -926,7 +932,12 @@ class JobReader:
             )
         if outcome == "removed":
             await asyncio.sleep(NAV_DELAY)
-            listing = await self._pages.read_tracker_listing(stage, job_id)
+            # As far as the card was found and no further: a job the first
+            # page held is proven gone by the first page, and walking the
+            # whole tab to say so would cost a click a page on every action.
+            listing = await self._pages.read_tracker_listing(
+                stage, job_id, max_pages=action.pages_read
+            )
             if listing.listed:
                 raise LinkedInOperationError(
                     f"{item!r} was chosen for job {job_id} and it left {tab}, "
@@ -938,7 +949,7 @@ class JobReader:
 def _beyond_first_page(job_id: str, stage: JobsTrackerStage) -> LinkedInOperationError:
     """The error for a job a tracker tab may hold past the page it shows."""
     return LinkedInOperationError(
-        f"Job {job_id} is not on the first page of the job tracker's {stage} "
-        "tab, and the tracker cannot be paged by address. Act on it from "
+        f"Job {job_id} was not on the pages read of the job tracker's {stage} "
+        "tab, and its pager stopped before the tab ended. Act on it from "
         "LinkedIn."
     )
