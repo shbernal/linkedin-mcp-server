@@ -488,10 +488,19 @@ async def _saved_jobs_scenario() -> dict[str, Any]:
         _root("Saved jobs page two", second_references),
     )
     page.script("evaluate:saved_job_total_pages", 2)
+    page.declare_locator("main [data-mcp-tracker-pager]", "tracker_pager")
+    page.script("evaluate:job_tracker_pager", {"pages": [1, 2], "marked": True})
+    page.script("tracker_pager.click", None)
+    first_ids = {"ids": [str(100 + index) for index in range(10)], "scoped": False}
+    second_ids = {"ids": [str(110 + index) for index in range(10)], "scoped": False}
     page.script(
         "evaluate:job_ids",
-        {"ids": [str(100 + index) for index in range(10)], "scoped": False},
-        {"ids": [str(110 + index) for index in range(10)], "scoped": False},
+        first_ids,
+        # The pager reads the list before its click and again after it: the
+        # page it served is the one the ids changed on.
+        first_ids,
+        second_ids,
+        second_ids,
     )
     extractor = _extractor(page)
     async with boundaries(recorder, clock):
@@ -550,6 +559,9 @@ async def _archive_job_scenario() -> dict[str, Any]:
         {"cards": 4, "listed": False, "menus": 0},
         {"cards": 1, "listed": True, "menus": 1},
     )
+    # A short applied tab with no pager under it: the walk ends there, and
+    # the job is looked for in the archived tab instead.
+    page.script("evaluate:job_tracker_pager", {"pages": [], "marked": False})
     extractor = _extractor(page)
     arguments = {"job_id": "123", "stage": "applied"}
     async with boundaries(recorder, clock):

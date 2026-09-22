@@ -286,8 +286,9 @@ def register_job_tools(
         Remove a job from the authenticated user's saved jobs.
 
         Works through LinkedIn's job tracker, so it also unsaves closed
-        postings, which no longer show a Save button. Only the first page of
-        saved jobs (10) is reachable. A job that is not saved, including every
+        postings, which no longer show a Save button. The tab's pages are
+        walked with its pager, ten jobs at a time. A job that is not saved,
+        including every
         job already applied to, returns already_unsaved: true; use archive_job
         for those. A closed posting cannot be saved again once unsaved.
 
@@ -340,8 +341,8 @@ def register_job_tools(
         Move a job to the archived tab of LinkedIn's job tracker.
 
         For applications that ended: an applied job cannot be unsaved, only
-        archived. Reversible from the archived tab on LinkedIn. Only the first
-        page (10 jobs) of the source tab is reachable.
+        archived. Reversible from the archived tab on LinkedIn. The source
+        tab's pages are walked with its pager, ten jobs at a time.
 
         Args:
             job_id: LinkedIn job ID (e.g., "4252026496", "3856789012")
