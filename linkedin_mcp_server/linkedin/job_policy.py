@@ -107,6 +107,22 @@ def no_matching_jobs_section_error(keywords: str) -> dict[str, str]:
     }
 
 
+def tracker_page_unreachable_section_error(page_number: int) -> dict[str, str]:
+    """The ``section_errors`` entry for a tracker page the pager did not show.
+
+    The tracker has no address for its later pages, so the pager is the only
+    way to them and a pager that does not answer ends the list early. Said
+    out loud, because a short list otherwise reads as the whole tab.
+    """
+    return {
+        "error_type": "pagination_stopped",
+        "error_message": (
+            f"LinkedIn's job tracker did not show page {page_number}, so this "
+            "is only what its earlier pages hold."
+        ),
+    }
+
+
 def dropped_offset_section_error(offset: int, landed: str) -> dict[str, str]:
     """The ``section_errors`` entry for a list that cannot be paged further.
 
