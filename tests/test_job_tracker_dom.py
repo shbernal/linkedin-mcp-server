@@ -15,6 +15,8 @@ Skipped automatically when chromium is not installed; run locally after
 
 from __future__ import annotations
 
+import json
+
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -42,6 +44,7 @@ ARCHIVE = JOB_TRACKER_EN_US.archive_item
 # evaluates in an isolated world that never sees the page's own globals.
 MENU_SCRIPT = """
 const chosen = [];
+const wire = () => {
 for (const button of document.querySelectorAll('main button[aria-expanded]')) {
     button.addEventListener('click', () => {
         document.querySelector('[role="menu"]')?.remove();
@@ -63,6 +66,8 @@ for (const button of document.querySelectorAll('main button[aria-expanded]')) {
         document.body.appendChild(menu);
     });
 }
+};
+wire();
 """
 
 
@@ -87,6 +92,35 @@ def tracker(*cards: str, script: str = MENU_SCRIPT) -> str:
         '<div role="button" aria-expanded="false">In Progress · 1</div>'
         f"<ul>{''.join(cards)}</ul></main>"
         f"<script>{script}</script>"
+    )
+
+
+def paged_tracker(*pages: tuple[str, ...], script: str = MENU_SCRIPT) -> str:
+    """A tracker tab whose numbered pager swaps the list, as LinkedIn's does.
+
+    The pager is numerals and a "Next", none of LinkedIn's classes, since
+    what is under test is that the numbers are what gets clicked.
+    """
+    lists = json.dumps(["".join(cards) for cards in pages])
+    buttons = "".join(
+        f"<button>{number}</button>" for number in range(1, len(pages) + 1)
+    )
+    return (
+        '<main><button aria-label="Back">←</button>'
+        f"<ul>{''.join(pages[0])}</ul>"
+        f"<nav>{buttons}<button>Next</button></nav></main>"
+        f"<script>{script}"
+        f"const lists = {lists};"
+        """
+        for (const button of document.querySelectorAll('nav button')) {
+            button.addEventListener('click', () => {
+                const page = parseInt(button.textContent, 10);
+                if (!page) return;
+                document.querySelector('main ul').innerHTML = lists[page - 1];
+                wire();
+            });
+        }
+        </script>"""
     )
 
 
@@ -125,7 +159,7 @@ async def act(page, html: str, job_id: str, item: str = UNSAVE) -> str:
     session = PageSession(page)
     reader = JobPageReader(session, PageNavigator(session), PageContentReader(session))
     with patch.object(reader._navigator, "_navigate_to_page", new_callable=AsyncMock):
-        return await reader.act_on_tracker_card("saved", job_id, item)
+        return (await reader.act_on_tracker_card("saved", job_id, item)).outcome
 
 
 async def chosen(page) -> list[list[str]]:
@@ -193,3 +227,83 @@ async def test_an_item_offered_twice_is_not_guessed_at(dom_page):
 
     assert await act(dom_page, html, "111") == "no_item"
     assert await chosen(dom_page) == []
+
+
+async def test_a_job_on_a_later_page_is_reached_through_the_pager(dom_page):
+    """The tracker has no address for page two, so the pager is the way in."""
+    html = paged_tracker(
+        tuple(card(str(100 + index)) for index in range(10)),
+        (card("222"), card("333")),
+    )
+
+    assert await act(dom_page, html, "222") == "removed"
+    assert await chosen(dom_page) == [["222", UNSAVE]]
+
+
+async def test_a_job_on_no_page_of_the_tab_is_absent(dom_page):
+    """Walked to the last page, a job the tab never listed is not there."""
+    html = paged_tracker(
+        tuple(card(str(100 + index)) for index in range(10)),
+        (card("222"),),
+    )
+
+    assert await act(dom_page, html, "999") == "absent"
+    assert await chosen(dom_page) == []
+
+
+async def test_a_pager_that_does_not_move_the_list_holds_the_job_back(dom_page):
+    """A click that changes nothing is not a page, and not an answer either.
+
+    The short first page is what makes the two apart: a tab with no pager
+    under it would be answered ``absent``, and this one is not.
+    """
+    html = paged_tracker(
+        (card("111"), card("112")),
+        (card("222"),),
+    ).replace("document.querySelector('main ul').innerHTML = lists[page - 1];", "")
+
+    assert await act(dom_page, html, "222") == "beyond_first_page"
+    assert await chosen(dom_page) == []
+
+
+async def test_the_page_budget_stops_the_walk(dom_page):
+    """A tab with more pages than the budget cannot prove a job absent."""
+    html = paged_tracker(
+        tuple(card(str(100 + index)) for index in range(10)),
+        (card("222"),),
+    )
+
+    await dom_page.goto(SAVED_URL)
+    await dom_page.set_content(html)
+    session = PageSession(dom_page)
+    reader = JobPageReader(session, PageNavigator(session), PageContentReader(session))
+    with patch.object(reader._navigator, "_navigate_to_page", new_callable=AsyncMock):
+        action = await reader.act_on_tracker_card("saved", "222", UNSAVE, max_pages=1)
+
+    assert action.outcome == "beyond_first_page"
+
+
+async def test_a_lone_numeral_is_not_a_pager(dom_page):
+    """One number under a full list says nothing about a second page."""
+    html = tracker(*(card(str(100 + index)) for index in range(10))).replace(
+        "</main>", "<button>1</button></main>"
+    )
+
+    assert await act(dom_page, html, "999") == "beyond_first_page"
+
+
+async def test_a_listing_read_walks_the_pages_too(dom_page):
+    """archive_job asks the archived tab whether the job is there at all."""
+    html = paged_tracker(
+        tuple(card(str(100 + index)) for index in range(10)),
+        (card("222"),),
+    )
+    await dom_page.goto(SAVED_URL)
+    await dom_page.set_content(html)
+    session = PageSession(dom_page)
+    reader = JobPageReader(session, PageNavigator(session), PageContentReader(session))
+    with patch.object(reader._navigator, "_navigate_to_page", new_callable=AsyncMock):
+        listing = await reader.read_tracker_listing("saved", "222")
+
+    assert listing.listed
+    assert listing.cards == 11
