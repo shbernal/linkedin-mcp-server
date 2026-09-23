@@ -1983,7 +1983,7 @@ class TestSubmitEasyApply:
 
         with run:
             result = await reader.submit_easy_apply(
-                self.URL, "123", JOB_APPLY_EN_US, answers, submit=False
+                self.URL, "123", JOB_APPLY_EN_US, answers, confirm_submit=False
             )
 
         assert result.submitted is False
@@ -2004,7 +2004,7 @@ class TestSubmitEasyApply:
 
         with run:
             result = await reader.submit_easy_apply(
-                self.URL, "123", JOB_APPLY_EN_US, answers, submit=True
+                self.URL, "123", JOB_APPLY_EN_US, answers, confirm_submit=True
             )
 
         assert result.submitted is True
@@ -2021,7 +2021,7 @@ class TestSubmitEasyApply:
         with run:
             with pytest.raises(InvalidAnswerError, match="Authorized to work"):
                 await reader.submit_easy_apply(
-                    self.URL, "123", JOB_APPLY_EN_US, {}, submit=True
+                    self.URL, "123", JOB_APPLY_EN_US, {}, confirm_submit=True
                 )
 
         assert dialog.log.count("next") == 1  # onto the step, never off it
@@ -2036,7 +2036,7 @@ class TestSubmitEasyApply:
 
         with run:
             result = await reader.submit_easy_apply(
-                self.URL, "123", JOB_APPLY_EN_US, answers, submit=True
+                self.URL, "123", JOB_APPLY_EN_US, answers, confirm_submit=True
             )
 
         assert result.submitted is False
@@ -2062,7 +2062,7 @@ class TestSubmitEasyApply:
                 "123",
                 JOB_APPLY_EN_US,
                 {**self.ANSWERS, "Upload resume": str(resume)},
-                submit=True,
+                confirm_submit=True,
             )
 
         assert ("cv", "upload", str(resume)) in dialog.log
@@ -2084,7 +2084,7 @@ class TestSubmitEasyApply:
 
         with run:
             result = await reader.submit_easy_apply(
-                self.URL, "123", JOB_APPLY_EN_US, answers, submit=True
+                self.URL, "123", JOB_APPLY_EN_US, answers, confirm_submit=True
             )
 
         assert result.complete is False
@@ -2100,7 +2100,7 @@ class TestSubmitEasyApply:
 
         with run:
             result = await reader.submit_easy_apply(
-                self.URL, "123", JOB_APPLY_EN_US, answers, submit=True
+                self.URL, "123", JOB_APPLY_EN_US, answers, confirm_submit=True
             )
 
         assert ("follow", "uncheck", "") in dialog.log
@@ -2117,7 +2117,7 @@ class TestSubmitEasyApply:
                 "123",
                 JOB_APPLY_EN_US,
                 answers,
-                submit=True,
+                confirm_submit=True,
                 follow_company=True,
             )
 
@@ -2136,7 +2136,7 @@ class TestSubmitEasyApply:
                     "123",
                     JOB_APPLY_EN_US,
                     {**self.ANSWERS, "Years of Rust": "5"},
-                    submit=True,
+                    confirm_submit=True,
                 )
 
         assert "submit" not in dialog.log
@@ -2151,7 +2151,7 @@ class TestSubmitEasyApply:
             reader, "_read_apply_type", new=AsyncMock(return_value=("applied", None))
         ):
             result = await reader.submit_easy_apply(
-                self.URL, "123", JOB_APPLY_EN_US, answers, submit=True
+                self.URL, "123", JOB_APPLY_EN_US, answers, confirm_submit=True
             )
 
         assert result == job_pages_module.EasyApplySubmitRead("applied")
@@ -2171,7 +2171,7 @@ class TestSubmitEasyApply:
         with run:
             with pytest.raises(RuntimeError, match="probably not sent"):
                 await reader.submit_easy_apply(
-                    self.URL, "123", JOB_APPLY_EN_US, answers, submit=True
+                    self.URL, "123", JOB_APPLY_EN_US, answers, confirm_submit=True
                 )
 
         assert "submit" in dialog.log
@@ -2184,7 +2184,7 @@ class TestSubmitEasyApply:
 
         with run:
             result = await reader.submit_easy_apply(
-                self.URL, "123", JOB_APPLY_EN_US, answers, submit=True
+                self.URL, "123", JOB_APPLY_EN_US, answers, confirm_submit=True
             )
 
         assert result.complete is False

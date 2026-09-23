@@ -21,6 +21,11 @@ work, health checks, or background maintenance.
 - `send_message` and `connect_with_person` are write actions. Use them only when
   the user explicitly authorizes the exact recipient and action. Confirm the
   final message or connection note unless the user has already supplied it.
+- `submit_easy_apply` is a write action too, and it writes even when it does not
+  submit: LinkedIn saves the answers to the account and prefills them into the
+  next application. Use it only when the user authorizes the posting and the
+  answers. Only `confirm_submit` sends the application, and a sent one cannot be
+  taken back.
 - Do not retry a failed write action unless the result proves it was not sent.
 
 ## Browser and authentication
@@ -44,11 +49,12 @@ instances, clear profiles, or replace the user's browser session.
 - Jobs: `search_jobs`, `get_saved_jobs`, `get_job_details`,
   `get_job_apply_url` and `get_easy_apply_form`. `get_easy_apply_form` opens
   the Easy Apply form, so use it only when the user is preparing an
-  application.
+  application. Read the form before answering it: `submit_easy_apply` keys its
+  answers by the exact labels that read returned.
 - Content: `get_feed` and `search_posts`.
 - Messages: `get_inbox`, `get_conversation`, and `search_conversations`.
-- Writes: `send_message` and `connect_with_person`, subject to the explicit
-  authorization rules above.
+- Writes: `send_message`, `connect_with_person` and `submit_easy_apply`,
+  subject to the explicit authorization rules above.
 - Cleanup: use `close_session` only when the user asks to end the managed
   browser session or when the current LinkedIn task is finished and no follow-up
   call is expected.
