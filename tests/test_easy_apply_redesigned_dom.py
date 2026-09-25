@@ -211,6 +211,10 @@ const render = () => {
             }
             wrapper.setAttribute('aria-checked', String(input.checked));
             window.log.push(input.checked ? `check ${input.id}` : `uncheck ${input.id}`);
+            // Measured: the box comes back re-mounted, under React's next id.
+            const label = wrapper.querySelector(`label[for="${input.id}"]`);
+            input.id = input.id.replace('»', '+»');
+            if (label) label.htmlFor = input.id;
         });
     }
     const upload = dialog.querySelector('#upload');
@@ -256,7 +260,8 @@ const render = () => {
         window.log.push('next');
         let valid = true;
         for (const id of page.required) {
-            const el = dialog.querySelector(`[id="${id}"]`);
+            // By prefix: a clicked box has been re-mounted under a new id.
+            const el = dialog.querySelector(`[id^="${id.slice(0, -1)}"]`);
             if (el.type === 'checkbox' ? el.checked : el.value) continue;
             valid = false;
             const error = document.createElement('p');
