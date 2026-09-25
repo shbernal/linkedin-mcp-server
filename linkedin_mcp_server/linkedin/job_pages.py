@@ -446,6 +446,20 @@ EASY_APPLY_STEP_JS = (
             block = blockOf(key, group);
             title = [...block.querySelectorAll('p')]
                 .find((p) => loose(p) && !key.contains(p) && follows(p, key)) || null;
+            // A group's title can sit beside an ancestor its block stops short
+            // of, one it shares with the next question: the resume list's does.
+            // The nearest earlier sibling holding a paragraph gives it, and one
+            // holding a control belongs to another question and ends the look.
+            for (let node = block; !title && key !== first && node.parentElement
+                && !top(node); node = node.parentElement) {
+                let sibling = node.previousElementSibling;
+                for (; sibling && !title; sibling = sibling.previousElementSibling) {
+                    if (sibling.querySelector('input, select, textarea')) break;
+                    title = [...sibling.querySelectorAll('p')].find(loose)
+                        || (sibling.matches('p') && loose(sibling) ? sibling : null);
+                }
+                if (sibling && !title) break;
+            }
             const own = key === first ? labelOf(first) : '';
             const label = own || text(title) || field.label;
             field.required = field.required || starred.test(label)
