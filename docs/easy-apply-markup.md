@@ -273,9 +273,22 @@ two `<button type="button">` in `div[data-testid="dialog-content"]`, Discard
 first and Save second, each with a UUID `componentkey` and nothing else.
 Clicking the first removed both dialogs from the document.
 
+### Ids that move
+
+Clicking a radio's or checkbox's wrapper re-mounts its input under React's
+next id: the consent box went `«r10»`, `«r11»`, `«r12»`, `«r13»` over three
+clicks. An id read before a click names nothing after it. Typing into a text
+field or textarea kept every id on the page.
+
+### After Submit
+
+Sent 2026-09-25 on the same posting. The form closed, and the posting then
+showed "Application status" and "Application submitted" above its
+description. No dialog with text was open when the confirmation was read a
+moment later, so the posting's line is what answered.
+
 ### Not measured
 
-- What follows Submit.
 - A typeahead's suggestion list, and whether a `role="option"` list appears.
 - A select, radio or checkbox question beyond the ones above, and a one-page
   form.
