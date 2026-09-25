@@ -79,11 +79,13 @@ CONTACT: dict[str, Any] = {
     ),
 }
 
+# As measured: the title sits in a sibling before the fieldset's parent, and
+# that parent also holds the next question.
 RESUME: dict[str, Any] = {
     "title": "",
     "required": [],
     "body": (
-        "<div><p>Resume*</p><p>Select or upload a resume</p><div>"
+        "<div><div><p>Resume*</p><p>Select or upload a resume</p></div><div>"
         '<fieldset aria-describedby="error-message-r5" role="radiogroup"><div>'
         '<div id="easyApplyUploadedResumeRef"></div><div>'
         '<div><div><div role="button" tabindex="0"><p>PDF</p><p><span>old.pdf</span>'
@@ -93,12 +95,11 @@ RESUME: dict[str, Any] = {
         '<label for="«r5»"></label></div></div></div>'
         "</div></div></fieldset>"
         '<div><button type="button" id="upload">Upload resume</button></div>'
-        "</div></div>"
         '<div componentkey="easyApplyFieldFocus_ea_validation_p1_0_7">'
         '<div><input id="«r6»" aria-label="Headline" type="text" '
         'aria-describedby="«r6»-info" value=""></div>'
         + counter("«r6»", 0, 127)
-        + "</div>"
+        + "</div></div></div>"
     ),
 }
 
