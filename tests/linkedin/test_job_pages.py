@@ -1832,8 +1832,11 @@ class TestAnswerEasyApplyStep:
     def test_a_control_is_addressed_inside_the_dialog_only(self):
         selector = job_pages_module.easy_apply_control_selector("first")
 
-        assert selector.count('[id="first"]') == 3
-        assert all(part.startswith('[role="dialog"]') for part in selector.split(", "))
+        assert selector.count('[id="first"]') == 4
+        assert all(
+            part.startswith(('[role="dialog"]', "dialog[open]"))
+            for part in selector.split(", ")
+        )
 
 
 class _Dialog:

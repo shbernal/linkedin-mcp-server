@@ -44,7 +44,6 @@ from linkedin_mcp_server.linkedin.contracts import (
     ExtractedSection,
 )
 from linkedin_mcp_server.linkedin.job_policy import (
-    EASY_APPLY_BUTTON_UNREAD,
     EASY_APPLY_DRAFT_LEFT,
     EASY_APPLY_NO_CONTROL,
     EASY_APPLY_SUBMIT_UNCONFIRMED,
@@ -164,6 +163,29 @@ PROMOTED_JOB_IDS_JS = (
 }"""
 )
 
+# Whether an element sits above the description heading, the boundary between
+# this posting's control area and the "More jobs" cards below it. Without the
+# heading nothing is above it. Needs `main` and `descriptionHeadings` already
+# in scope.
+#
+# The heading is found by walking text nodes rather than asking every element
+# for its text. Both find it; the walk visits fewer nodes and copies none of
+# them, and `textContent` on every element of a posting copies that posting
+# once per level of nesting. That is worth the difference because the readiness
+# poll runs this program on every frame for up to ten seconds.
+_ABOVE_DESCRIPTION_JS = r"""    const walk = document.createTreeWalker(main, NodeFilter.SHOW_TEXT);
+    let heading = null;
+    while (walk.nextNode()) {
+        if (descriptionHeadings.includes((walk.currentNode.nodeValue || '').trim())) {
+            heading = walk.currentNode;
+            break;
+        }
+    }
+    const above = (el) => Boolean(
+        heading && (heading.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_PRECEDING)
+    );
+"""
+
 # The posting's own lines: everything above its description heading, trimmed.
 # One fragment rather than one per reader, because the boundary is what keeps a
 # word in the description or on a "More jobs" card from passing for this
@@ -193,12 +215,6 @@ _TOP_LINES_JS = r"""    const lines = (main.innerText || '').split('\n').map((li
 # opened a "Share your profile?" dialog or a tab. LinkedIn counts that click as
 # an apply on the posting, and no posting has shown the button since, so it is
 # not read: a posting carrying it answers `unknown` and is never clicked.
-#
-# The heading is found by walking text nodes rather than asking every element
-# for its text. Both find it; the walk visits fewer nodes and copies none of
-# them, and `textContent` on every element of a posting copies that posting
-# once per level of nesting. That is worth the difference because the readiness
-# poll runs this program on every frame for up to ten seconds.
 APPLY_SIGNALS_JS = (
     r"""(opts) => {
     const {
@@ -214,18 +230,8 @@ APPLY_SIGNALS_JS = (
             return '';
         }
     };
-    const walk = document.createTreeWalker(main, NodeFilter.SHOW_TEXT);
-    let heading = null;
-    while (walk.nextNode()) {
-        if (descriptionHeadings.includes((walk.currentNode.nodeValue || '').trim())) {
-            heading = walk.currentNode;
-            break;
-        }
-    }
-    const above = (el) => Boolean(
-        heading && (heading.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_PRECEDING)
-    );
 """
+    + _ABOVE_DESCRIPTION_JS
     + _TOP_LINES_JS
     + r"""    const applied = new RegExp(appliedPattern);
     const anchors = [...main.querySelectorAll('a[href]')];
@@ -244,6 +250,29 @@ APPLY_SIGNALS_JS = (
 }"""
 )
 
+# The breath-before-the-click mark for the Easy Apply that is a button, found
+# the way `APPLY_SIGNALS_JS` finds it. Set the moment before the click and never
+# earlier, so that a re-render between the two fails the click rather than
+# moving it onto another posting's control.
+EASY_APPLY_MARK = "data-mcp-easy-apply"
+
+MARK_EASY_APPLY_JS = (
+    """(opts) => {
+    const {easyApplyLabel, descriptionHeadings} = opts;
+    const main = document.querySelector('main');
+    if (!main) return false;
+"""
+    + _ABOVE_DESCRIPTION_JS
+    + f"""    const button = [...main.querySelectorAll('button')].find(
+        (el) => above(el) && (el.innerText || '').trim() === easyApplyLabel
+    );
+    if (button) {{
+        button.setAttribute('{EASY_APPLY_MARK}', '');
+    }}
+    return Boolean(button);
+}}"""
+)
+
 # Ready once the description heading and a signal are both in. The Easy Apply
 # anchor is found without the heading (the button is not), but the applied and
 # closed lines are not, so a read that settled on the anchor alone could call
@@ -258,11 +287,18 @@ APPLY_READY_JS = (
 _APPLY_READY_TIMEOUT = 10.0
 _APPLY_POLL = 0.25
 
-# The Easy Apply dialog renders inside an open shadow root, which
-# `querySelectorAll` from the document never enters, so the programs below walk
-# the open roots first. Playwright locators pierce them on their own. The dialog
-# is told apart from others by an Easy Apply control inside it, and every button
-# by a LinkedIn data attribute rather than by its localized label.
+# Easy Apply opens one of two dialogs. The one an `/apply/` anchor opens
+# renders inside an open shadow root, which `querySelectorAll` from the
+# document never enters, so the programs below walk the open roots first.
+# Playwright locators pierce them on their own. It is told apart from others by
+# an Easy Apply control inside it, and every button by a LinkedIn data
+# attribute rather than by its localized label.
+#
+# The one a button opens (measured on 2026-09-25) is a native `<dialog>` in the
+# document, told apart by the Easy Apply screen it holds. Its buttons carry
+# nothing to find them by, so they are found by place: the footer's last
+# button moves forward, and it submits on the page whose progress reads 100.
+# `docs/easy-apply-markup.md` holds the measurements.
 _SHADOW_ROOTS_JS = r"""
     const roots = [document];
     for (let i = 0; i < roots.length; i++) {
@@ -272,16 +308,23 @@ _SHADOW_ROOTS_JS = r"""
     }
 """
 
+_EASY_APPLY_SCREEN = '[data-sdui-screen$=".easyapply.EasyApply"]'
+
 _EASY_APPLY_DIALOG_JS = (
     _SHADOW_ROOTS_JS
+    + f"""
+    const screen = '{_EASY_APPLY_SCREEN}';
+"""
     + r"""
+    let dialog = [...document.querySelectorAll('dialog[open]')]
+        .find((candidate) => candidate.querySelector(screen)) || null;
+    const redesigned = Boolean(dialog);
     const marker = '[data-easy-apply-next-button], '
         + '[data-live-test-easy-apply-submit-button], [id*="easyApplyFormElement"]';
-    let dialog = null;
     for (const root of roots) {
-        dialog = [...root.querySelectorAll('[role="dialog"]')]
-            .find((candidate) => candidate.querySelector(marker));
         if (dialog) break;
+        dialog = [...root.querySelectorAll('[role="dialog"]')]
+            .find((candidate) => candidate.querySelector(marker)) || null;
     }
 """
 )
@@ -292,14 +335,27 @@ EASY_APPLY_OPEN_JS = (
 EASY_APPLY_CLOSED_JS = "() => !(" + EASY_APPLY_OPEN_JS + ")()"
 
 # One step of the open dialog. Radios and checkboxes are grouped into one field
-# per question; every other control is its own field. Footer controls (follow
-# the company) are not questions, and a file input is read although hidden
-# behind its upload button. `signature` changes when the step does.
+# per question; every other control is its own field. The follow-the-company
+# checkbox is not a question: the old dialog puts it in the footer and the
+# redesigned one outside every question's wrapper. A file input is read although
+# hidden behind its upload button. `signature` changes when the step does.
 #
 # `ids` carries the control behind each field so an answer can reach it: one
 # entry for a text, select or file input, and one per option, in the options'
 # order, for a radio or checkbox group. `_public_step` drops it again, because
 # a control id is the walk's own handle and means nothing to a caller.
+#
+# The redesigned dialog labels a question in four ways (`label[for]`,
+# `aria-label`, a `<p>` before it, the `aria-label` of a `role="radio"` or
+# `role="checkbox"` wrapper), marks it required with an attribute or only with
+# the `*` ending its title, and leaves its errors as loose `<p>` after it. A
+# question's block is the largest ancestor holding no other question's control,
+# below the page's own column, so the page title is never taken for one. Its
+# resume upload has no file input until the button is clicked, so the button
+# stands in for one, marked for the click and named by `EASY_APPLY_UPLOAD_ID`.
+EASY_APPLY_UPLOAD_MARK = "data-mcp-easy-apply-upload"
+EASY_APPLY_UPLOAD_ID = "mcp-easy-apply-upload"
+
 EASY_APPLY_STEP_JS = (
     "(maxOptions) => {"
     + _EASY_APPLY_DIALOG_JS
@@ -318,14 +374,25 @@ EASY_APPLY_STEP_JS = (
         return (copy.textContent || '').replace(/\s+/g, ' ').trim();
     };
     const byId = (id) => form.querySelector(`[id="${CSS.escape(id)}"]`);
+    const wrapperOf = (el) => el.closest('[role="radio"], [role="checkbox"]');
     const labelOf = (el) =>
         (el.id && text(form.querySelector(`label[for="${CSS.escape(el.id)}"]`)))
         || text(el.closest('label'))
-        || (el.getAttribute('aria-label') || '').trim();
+        || (el.getAttribute('aria-label') || '').trim()
+        || (wrapperOf(el) && (
+            (wrapperOf(el).getAttribute('aria-label') || '').trim()
+            || text(wrapperOf(el)).slice(0, 300)
+        ))
+        || '';
     const isChoice = (el) => el.type === 'radio' || el.type === 'checkbox';
-    const controls = [...form.querySelectorAll('input, select, textarea')].filter(
+    const question = (el) => !redesigned || !(
+        el.type === 'checkbox' && !el.closest('[componentkey^="easyApplyFieldFocus"]')
+    );
+    const everyControl = [...form.querySelectorAll('input, select, textarea')]
+        .filter((el) => el.type !== 'hidden');
+    const controls = everyControl.filter(
         (el) => !(footer && footer.contains(el))
-            && el.type !== 'hidden'
+            && question(el)
             && (el.type === 'file' || shown(el))
     );
     const groups = new Map();
@@ -336,6 +403,25 @@ EASY_APPLY_STEP_JS = (
         if (!groups.has(key)) groups.set(key, []);
         groups.get(key).push(el);
     }
+    const column = dialog.querySelector('[data-testid="lazy-column"]');
+    const top = (el) => el === dialog || el === column
+        || Boolean(column && el.parentElement === column);
+    const blockOf = (key, group) => {
+        let block = key;
+        while (block.parentElement && !top(block.parentElement)
+            && !everyControl.some((el) => !group.includes(el)
+                && block.parentElement.contains(el))) {
+            block = block.parentElement;
+        }
+        return block;
+    };
+    const loose = (p) => !p.closest(
+        '[role="radio"], [role="checkbox"], [role="button"], label, [aria-live]'
+    );
+    const follows = (a, b) => Boolean(
+        a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING
+    );
+    const starred = /\s*\*\s*$/;
     const fields = [];
     for (const [key, group] of groups) {
         const first = group[0];
@@ -347,11 +433,24 @@ EASY_APPLY_STEP_JS = (
             type: first.tagName === 'SELECT' ? 'select'
                 : first.tagName === 'TEXTAREA' ? 'textarea'
                 : first.getAttribute('role') === 'combobox' ? 'typeahead'
+                : first.getAttribute('aria-autocomplete') === 'list' ? 'typeahead'
                 : first.type || 'text',
             required: group.some(
                 (el) => el.required || el.getAttribute('aria-required') === 'true'
             ) || Boolean(fieldset && fieldset.getAttribute('aria-required') === 'true'),
         };
+        let block = null;
+        let title = null;
+        if (redesigned) {
+            block = blockOf(key, group);
+            title = [...block.querySelectorAll('p')]
+                .find((p) => loose(p) && !key.contains(p) && follows(p, key)) || null;
+            const own = key === first ? labelOf(first) : '';
+            const label = own || text(title) || field.label;
+            field.required = field.required || starred.test(label)
+                || starred.test(text(title));
+            field.label = label.replace(starred, '');
+        }
         if (first.tagName === 'SELECT') {
             const options = [...first.options].map((option) => option.text.trim());
             field.options = options.slice(0, maxOptions);
@@ -366,30 +465,79 @@ EASY_APPLY_STEP_JS = (
         }
         field.ids = group.map((el) => el.id || '');
         if (first.maxLength > 0) field.max_length = first.maxLength;
-        const errors = group
-            .flatMap((el) => (el.getAttribute('aria-describedby') || '').split(/\s+/))
-            .filter(Boolean)
-            .map((id) => text(byId(id)))
-            .filter(Boolean);
+        let errors;
+        if (redesigned) {
+            const last = group[group.length - 1];
+            errors = [...block.querySelectorAll('p')]
+                .filter((p) => p !== title && loose(p) && !key.contains(p)
+                    && follows(last, p))
+                .map(text);
+            // The only account of a text field's limit is its counter, "0/127".
+            const helper = first.id && byId(`${first.id}-info`);
+            const counter = helper
+                && helper.querySelector('[aria-live] [aria-hidden="true"]');
+            const limit = counter && /\/\s*(\d+)\s*$/.exec(counter.textContent || '');
+            if (limit && !field.max_length) field.max_length = Number(limit[1]);
+        } else {
+            errors = group
+                .flatMap((el) => (el.getAttribute('aria-describedby') || '').split(/\s+/))
+                .filter(Boolean)
+                .map((id) => text(byId(id)));
+        }
+        errors = errors.filter(Boolean);
         if (errors.length) field.error = [...new Set(errors)].join(' ');
         fields.push(field);
+        if (redesigned && key.matches('fieldset[role="radiogroup"]')) {
+            let scope = key;
+            let upload = null;
+            while (!upload && scope.parentElement && !top(scope.parentElement)) {
+                scope = scope.parentElement;
+                upload = [...scope.querySelectorAll('button')].find(
+                    (el) => !key.contains(el) && !(footer && footer.contains(el))
+                        && !el.hasAttribute('aria-label') && !el.hasAttribute('role')
+                ) || null;
+            }
+            if (upload) {
+                upload.setAttribute('"""
+    + EASY_APPLY_UPLOAD_MARK
+    + r"""', '');
+                fields.push({
+                    label: text(upload),
+                    type: 'file',
+                    required: false,
+                    ids: ['"""
+    + EASY_APPLY_UPLOAD_ID
+    + r"""'],
+                });
+            }
+        }
     }
-    const heading = dialog.querySelector('h3');
+    const heading = dialog.querySelector('h3')
+        || (redesigned && column && column.querySelector('p'));
     const progress = dialog.querySelector('progress');
-    const value = progress && progress.getAttribute('value');
+    const bar = dialog.querySelector('[role="progressbar"][aria-valuenow]');
+    const value = progress ? progress.getAttribute('value')
+        : redesigned && bar ? bar.getAttribute('aria-valuenow') : null;
+    const forward = footer && [...footer.querySelectorAll('button')].pop();
     return {
-        heading: text(heading),
+        heading: text(heading).replace(starred, ''),
         progress: value === null ? null : Number(value),
         fields,
-        next: Boolean(dialog.querySelector('[data-easy-apply-next-button]')),
+        // A page with no reading of its progress is never taken for one with
+        // pages after it: moving forward from the last page submits.
+        next: redesigned
+            ? Boolean(forward) && value !== null && Number(value) < 100
+            : Boolean(dialog.querySelector('[data-easy-apply-next-button]')),
+        redesigned,
         signature: [text(heading), value, ...controls.map((el) => el.id || el.type)]
             .join('\n'),
     };
 }"""
 )
 
-# The follow-the-company checkbox, which LinkedIn ships checked and puts in the
-# footer the step program skips: it is not one of the form's questions, and
+# The follow-the-company checkbox, which LinkedIn ships checked where the step
+# program does not read: the old dialog's footer, and the redesigned dialog's
+# last page outside every question. It is not one of the form's questions, and
 # nobody answering a job application means to follow the company by omission.
 EASY_APPLY_FOLLOW_JS = (
     "() => {"
@@ -398,7 +546,11 @@ EASY_APPLY_FOLLOW_JS = (
     if (!dialog) return null;
     const form = dialog.querySelector('form') || dialog;
     const footer = form.querySelector('footer');
-    const box = footer && footer.querySelector('input[type="checkbox"]');
+    const box = redesigned
+        ? [...form.querySelectorAll('input[type="checkbox"]')].find(
+            (el) => !el.closest('[componentkey^="easyApplyFieldFocus"]')
+        )
+        : footer && footer.querySelector('input[type="checkbox"]');
     if (!box) return null;
     // Whether the control can be clicked at all. LinkedIn styles the box with
     // a label and may leave the input itself with nothing to click, which a
@@ -409,7 +561,9 @@ EASY_APPLY_FOLLOW_JS = (
     const labelled = Boolean(
         box.id && form.querySelector(`label[for="${CSS.escape(box.id)}"]`)
     );
-    return {id: box.id || '', checked: box.checked, shown, labelled};
+    // The redesigned box takes no click of its own, only its wrapper's.
+    const wrapped = Boolean(box.closest('[role="checkbox"]'));
+    return {id: box.id || '', checked: box.checked, shown, labelled, wrapped};
 }"""
 )
 
@@ -421,7 +575,10 @@ EASY_APPLY_CONFIRMATION_JS = (
     + _SHADOW_ROOTS_JS
     + r"""
     for (const root of roots) {
-        for (const box of root.querySelectorAll('[role="dialog"], [role="alertdialog"]')) {
+        const boxes = root.querySelectorAll(
+            '[role="dialog"], [role="alertdialog"], dialog[open]'
+        );
+        for (const box of boxes) {
             const text = (box.textContent || '').replace(/\s+/g, ' ').trim();
             if (text) return text.slice(0, 400);
         }
@@ -449,7 +606,15 @@ APPLIED_LINE_JS = (
 
 EASY_APPLY_NEXT_SELECTOR = "[data-easy-apply-next-button]"
 EASY_APPLY_SUBMIT_SELECTOR = "[data-live-test-easy-apply-submit-button]"
-EASY_APPLY_DISCARD_SELECTOR = '[data-control-name="discard_application_confirm_btn"]'
+# "Save this application?" names none of its buttons. In the redesigned dialog
+# it is a second `<dialog>` without the Easy Apply screen, and Discard is the
+# first of its two buttons, Save the second: order is the one thing between them.
+EASY_APPLY_DISCARD_SELECTOR = (
+    '[data-control-name="discard_application_confirm_btn"], '
+    f"dialog[open]:not(:has({_EASY_APPLY_SCREEN})) "
+    '[data-testid="dialog-content"] button:first-of-type'
+)
+EASY_APPLY_REDESIGNED_DIALOG = f"dialog[open]:has({_EASY_APPLY_SCREEN})"
 
 # The open dialog, named the same way the programs above name it. A control is
 # addressed through it rather than by its id alone, because the posting behind
@@ -458,6 +623,7 @@ _EASY_APPLY_DIALOG_PARTS = (
     '[role="dialog"]:has([data-easy-apply-next-button])',
     '[role="dialog"]:has([data-live-test-easy-apply-submit-button])',
     '[role="dialog"]:has([id*="easyApplyFormElement"])',
+    EASY_APPLY_REDESIGNED_DIALOG,
 )
 
 
@@ -511,6 +677,9 @@ EASY_APPLY_OPTION_TEXT_JS = r"""(nodes) => nodes.map((node) => {
     return (copy.textContent || '').replace(/\s+/g, ' ').trim();
 })"""
 
+
+# The redesigned dialog's radio or checkbox wrapper, from its input.
+_CHOICE_WRAPPER = 'xpath=ancestor::*[@role="radio" or @role="checkbox"][1]'
 
 _EASY_APPLY_OPEN_TIMEOUT = 10.0
 _EASY_APPLY_STEP_TIMEOUT = 8.0
@@ -815,9 +984,12 @@ def plan_easy_apply_step(
     step does not carry is left for another step to claim; what becomes of one
     no step claims is the walk's to decide, once every step has been seen.
 
-    An empty typeahead no answer names refuses here rather than at the end of
-    the step, because no prefill means there is nothing to keep and LinkedIn
-    will not take the step without it. Naming it is what makes it answerable.
+    An empty required typeahead no answer names refuses here rather than at
+    the end of the step, because no prefill means there is nothing to keep and
+    LinkedIn will not take the step without it. Naming it is what makes it
+    answerable. An optional one is left empty: the redesigned dialog's
+    location field reads empty while LinkedIn holds the profile's own place
+    behind it, and shows that place on its review page.
 
     Picks come back first. Every other answer is resolved before the first one
     is carried out, so a refusal cannot leave a half-filled step; a pick only
@@ -829,6 +1001,7 @@ def plan_easy_apply_step(
     for field in step["fields"]:
         if (
             field["type"] == "typeahead"
+            and field["required"]
             and not field.get("value")
             and field["label"] not in answers
         ):
@@ -978,7 +1151,7 @@ class JobPageReader:
 
         steps: list[dict[str, Any]] = []
         try:
-            complete = await self._walk_easy_apply(job_id, steps)
+            complete = await self._walk_easy_apply(job_id, text, steps)
         except Exception as e:
             if not await self._discard_easy_apply():
                 raise RuntimeError(EASY_APPLY_DRAFT_LEFT) from e
@@ -986,19 +1159,72 @@ class JobPageReader:
         discarded = await self._discard_easy_apply()
         return EasyApplyFormRead("easy_apply", tuple(steps), complete, discarded)
 
-    async def _walk_easy_apply(self, job_id: str, steps: list[dict[str, Any]]) -> bool:
-        """Open the dialog and read its steps into ``steps``; True when all were read."""
+    async def _open_easy_apply(self, job_id: str, text: JobApplyTextTable) -> None:
+        """Click this posting's Easy Apply and wait for its dialog.
+
+        The anchor is found by its URL. The button is marked in the page by the
+        read that finds it, and the mark is what gets clicked, as with the
+        external Apply.
+        """
         page = self._session.page
         route = page.locator(f'main a[href*="/jobs/view/{job_id}/apply"]')
-        if not await route.count():
-            raise RuntimeError(EASY_APPLY_BUTTON_UNREAD)
-        await route.first.click(timeout=5000)
+        if await route.count():
+            await route.first.click(timeout=5000)
+        else:
+            opts = {
+                "easyApplyLabel": text.easy_apply_label,
+                "descriptionHeadings": list(text.description_headings),
+            }
+            if not await page.evaluate(MARK_EASY_APPLY_JS, opts):
+                raise RuntimeError("The Easy Apply control is gone from the posting")
+            await page.locator(f"main button[{EASY_APPLY_MARK}]").first.click(
+                timeout=5000
+            )
         try:
             await page.wait_for_function(
                 EASY_APPLY_OPEN_JS, timeout=_EASY_APPLY_OPEN_TIMEOUT * 1000
             )
         except PlaywrightTimeoutError:
             raise RuntimeError("The Easy Apply dialog did not open") from None
+
+    async def _click_easy_apply_next(self, step: dict[str, Any]) -> None:
+        """Move the dialog on from ``step``, which has a step after it.
+
+        The old dialog's Next is found by its attribute: a one-step form holds
+        Submit in the same footer slot. The redesigned one names neither, and
+        its Next is the footer's last button on a step whose progress is short
+        of 100, which ``step["next"]`` already stands for.
+        """
+        page = self._session.page
+        if not step.get("redesigned"):
+            await page.locator(EASY_APPLY_NEXT_SELECTOR).click(timeout=5000)
+            return
+        await self._dismiss_easy_apply_toasts()
+        await (
+            page.locator(EASY_APPLY_REDESIGNED_DIALOG)
+            .locator("footer button")
+            .last.click(timeout=5000)
+        )
+
+    async def _dismiss_easy_apply_toasts(self) -> None:
+        """Close the redesigned dialog's notifications.
+
+        One follows an upload, sits over the footer and takes the click meant
+        for Next, and it was still up ten seconds later when measured.
+        """
+        page = self._session.page
+        toasts = page.locator(EASY_APPLY_REDESIGNED_DIALOG).locator(
+            '[role="alert"] button'
+        )
+        for _ in range(await toasts.count()):
+            with suppress(PlaywrightTimeoutError):
+                await toasts.first.click(timeout=_EASY_APPLY_SET_TIMEOUT * 1000)
+
+    async def _walk_easy_apply(
+        self, job_id: str, text: JobApplyTextTable, steps: list[dict[str, Any]]
+    ) -> bool:
+        """Open the dialog and read its steps into ``steps``; True when all were read."""
+        await self._open_easy_apply(job_id, text)
 
         step = await self._read_easy_apply_step(None)
         while True:
@@ -1007,9 +1233,8 @@ class JobPageReader:
                 return True
             if len(steps) >= _EASY_APPLY_MAX_STEPS:
                 return False
-            # The only control ever clicked in the dialog. Found by its
-            # attribute: a one-step form holds Submit in the same footer slot.
-            await page.locator(EASY_APPLY_NEXT_SELECTOR).click(timeout=5000)
+            # The only control ever clicked in the dialog.
+            await self._click_easy_apply_next(step)
             after = await self._read_easy_apply_step(step)
             if after["signature"] == step["signature"]:
                 # Refused: the same step, now carrying LinkedIn's errors.
@@ -1084,17 +1309,7 @@ class JobPageReader:
         follow_company: bool,
     ) -> _WalkOutcome:
         """Open the dialog, answer it step by step, and end on the last one."""
-        page = self._session.page
-        route = page.locator(f'main a[href*="/jobs/view/{job_id}/apply"]')
-        if not await route.count():
-            raise RuntimeError(EASY_APPLY_BUTTON_UNREAD)
-        await route.first.click(timeout=5000)
-        try:
-            await page.wait_for_function(
-                EASY_APPLY_OPEN_JS, timeout=_EASY_APPLY_OPEN_TIMEOUT * 1000
-            )
-        except PlaywrightTimeoutError:
-            raise RuntimeError("The Easy Apply dialog did not open") from None
+        await self._open_easy_apply(job_id, text)
 
         used: set[str] = set()
         step = await self._read_easy_apply_step(None)
@@ -1116,7 +1331,7 @@ class JobPageReader:
                 break
             if len(steps) >= _EASY_APPLY_MAX_STEPS:
                 return _WalkOutcome(complete=False)
-            await page.locator(EASY_APPLY_NEXT_SELECTOR).click(timeout=5000)
+            await self._click_easy_apply_next(step)
             after = await self._read_easy_apply_step(step)
             if _step_errors(after) or _step_identity(after) == _step_identity(step):
                 # Refused, or standing still and saying nothing about why.
@@ -1132,7 +1347,7 @@ class JobPageReader:
         follow = await self._set_follow_company(follow_company)
         if not confirm_submit:
             return _WalkOutcome(complete=True, follow=follow)
-        confirmation = await self._click_easy_apply_submit(text)
+        confirmation = await self._click_easy_apply_submit(text, step)
         return _WalkOutcome(
             complete=True, submitted=True, follow=follow, confirmation=confirmation
         )
@@ -1158,7 +1373,12 @@ class JobPageReader:
             missing = sorted(
                 name
                 for name in names
-                if not any(name in field["label"] for field in step["fields"])
+                if not any(
+                    name in field["label"]
+                    # The redesigned dialog names it on a radio it checks.
+                    or any(name in picked for picked in field.get("selected") or [])
+                    for field in step["fields"]
+                )
             )
             if not missing:
                 return step
@@ -1209,6 +1429,10 @@ class JobPageReader:
         """
         page = self._session.page
         timeout = _EASY_APPLY_SET_TIMEOUT * 1000
+        if box.get("wrapped") and box["id"]:
+            control = page.locator(easy_apply_control_selector(box["id"])).first
+            await control.locator(_CHOICE_WRAPPER).click(timeout=timeout)
+            return
         label = page.locator(easy_apply_label_selector(box["id"])).first
         if attempt and box["labelled"]:
             await label.click(timeout=timeout)
@@ -1229,18 +1453,34 @@ class JobPageReader:
         else:
             await control.check(timeout=timeout)
 
-    async def _click_easy_apply_submit(self, text: JobApplyTextTable) -> str:
-        """Send the application; answers with what LinkedIn showed afterwards.
+    async def _click_easy_apply_submit(
+        self, text: JobApplyTextTable, step: dict[str, Any]
+    ) -> str:
+        """Send the application from ``step``, the last one; answers with what
+        LinkedIn showed afterwards.
 
         The one click that cannot be taken back. A dialog still holding the
         form after it is a submission that did not happen, and it is raised
         rather than reported, so that nothing downstream records an application
         on the strength of a click alone.
+
+        The redesigned dialog's Submit carries nothing to find it by. It is the
+        footer's last button on the page whose progress reads 100, and on no
+        other page: anywhere else the same slot holds Next or Review.
         """
         page = self._session.page
-        await page.locator(EASY_APPLY_SUBMIT_SELECTOR).first.click(
-            timeout=_EASY_APPLY_SET_TIMEOUT * 1000
-        )
+        timeout = _EASY_APPLY_SET_TIMEOUT * 1000
+        if step.get("redesigned"):
+            if step["progress"] != 100:
+                raise RuntimeError(
+                    "The Easy Apply dialog's last page does not read as complete, "
+                    "so its Submit could not be told from Next. Nothing was sent."
+                )
+            await self._dismiss_easy_apply_toasts()
+            submit = page.locator(EASY_APPLY_REDESIGNED_DIALOG).locator("footer button")
+            await submit.last.click(timeout=timeout)
+        else:
+            await page.locator(EASY_APPLY_SUBMIT_SELECTOR).first.click(timeout=timeout)
         try:
             await page.wait_for_function(
                 EASY_APPLY_CLOSED_JS, timeout=_EASY_APPLY_SUBMIT_TIMEOUT * 1000
@@ -1320,10 +1560,20 @@ class JobPageReader:
                 )
             elif edit.action == "select":
                 await control.select_option(label=edit.value, timeout=timeout)
-            elif edit.action == "check":
-                await control.check(timeout=timeout)
-            elif edit.action == "uncheck":
-                await control.uncheck(timeout=timeout)
+            elif edit.action in ("check", "uncheck"):
+                await self._set_easy_apply_choice(
+                    control, edit.action == "check", wrapped=step.get("redesigned")
+                )
+            elif edit.control_id == EASY_APPLY_UPLOAD_ID:
+                # The redesigned dialog has no file input until its upload
+                # button is clicked, and then only one outside the dialog, in
+                # the body, that the click opens a chooser from.
+                button = page.locator(
+                    f"{EASY_APPLY_REDESIGNED_DIALOG} button[{EASY_APPLY_UPLOAD_MARK}]"
+                )
+                async with page.expect_file_chooser(timeout=timeout) as chooser:
+                    await button.first.click(timeout=timeout)
+                await (await chooser.value).set_files(edit.value, timeout=timeout)
             else:
                 # The one control set while invisible: LinkedIn hides the file
                 # input behind an upload button, and an upload is the one thing
@@ -1332,6 +1582,28 @@ class JobPageReader:
         return used, {
             Path(edit.value).name for edit in edits if edit.action == "upload"
         }
+
+    async def _set_easy_apply_choice(
+        self, control: Locator, checked: bool, *, wrapped: bool | None
+    ) -> None:
+        """Leave the radio or checkbox behind ``control`` as ``checked`` asks.
+
+        The redesigned dialog wraps each one in a `role="radio"` or
+        `role="checkbox"` element and gives the input `tabindex="-1"`; `check`
+        timed out on it when measured, and a click on the wrapper took. The old
+        dialog's inputs take `check` directly.
+        """
+        timeout = _EASY_APPLY_SET_TIMEOUT * 1000
+        if not wrapped:
+            if checked:
+                await control.check(timeout=timeout)
+            else:
+                await control.uncheck(timeout=timeout)
+            return
+        if await control.is_checked(timeout=timeout) != checked:
+            await control.locator(_CHOICE_WRAPPER).click(timeout=timeout)
+        if await control.is_checked(timeout=timeout) != checked:
+            raise RuntimeError("An Easy Apply choice did not take its click")
 
     async def _pick_easy_apply_suggestion(
         self, field: dict[str, Any], control: Locator, answer: str
