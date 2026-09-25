@@ -58,22 +58,22 @@ def counter(control_id: str, used: int, limit: int) -> str:
 
 CONTACT: dict[str, Any] = {
     "title": "Contact info",
-    "required": ["r3"],
+    "required": ["«r3»"],
     "body": (
         '<div componentkey="easyApplyFieldFocus_ea.q::1::FIRST_NAME::firstName.validation">'
-        '<label for="r1"><div>First name*</div></label>'
-        '<div><input required id="r1" type="text" aria-describedby="r1-info" '
-        'value="Santiago "></div>' + counter("r1", 9, 100) + "</div>"
-        '<div><div><label for="r2"><div>Phone country code*</div></label>'
-        '<div><select id="r2" required><option value="es">Spain (+34)</option>'
+        '<label for="«r1»"><div>First name*</div></label>'
+        '<div><input required id="«r1»" type="text" aria-describedby="«r1»-info" '
+        'value="Santiago "></div>' + counter("«r1»", 9, 100) + "</div>"
+        '<div><div><label for="«r2»"><div>Phone country code*</div></label>'
+        '<div><select id="«r2»" required><option value="es">Spain (+34)</option>'
         '<option value="fr" selected>France (+33)</option></select></div></div>'
         '<div componentkey="easyApplyFieldFocus_ea.q::3::PHONE_MOBILE::phoneNumber.validation">'
-        '<label for="r3"><div>Mobile phone number*</div></label>'
-        '<div><input required id="r3" type="tel" aria-describedby="r3-info" '
+        '<label for="«r3»"><div>Mobile phone number*</div></label>'
+        '<div><input required id="«r3»" type="tel" aria-describedby="«r3»-info" '
         'value="%(phone)s"></div></div></div>'
         '<div componentkey="easyApplyFieldFocus_ea.q::4::UNKNOWN::value.validation">'
         '<p>Location (city)</p><div role="status" aria-live="polite"></div>'
-        '<div><div><input id="r4" data-testid="typeahead-input" autocomplete="off" '
+        '<div><div><input id="«r4»" data-testid="typeahead-input" autocomplete="off" '
         'aria-autocomplete="list" placeholder="Enter city or location" value="">'
         "</div></div></div>"
     ),
@@ -89,38 +89,40 @@ RESUME: dict[str, Any] = {
         '<div><div><div role="button" tabindex="0"><p>PDF</p><p><span>old.pdf</span>'
         '</p></div></div><div role="radio" tabindex="0" aria-label="old.pdf" '
         'aria-checked="true"><div aria-label="old.pdf">'
-        '<input id="r5" type="radio" checked name="resume" class="covered">'
-        '<label for="r5"></label></div></div></div>'
+        '<input id="«r5»" type="radio" checked name="resume" class="covered">'
+        '<label for="«r5»"></label></div></div></div>'
         "</div></div></fieldset>"
         '<div><button type="button" id="upload">Upload resume</button></div>'
         "</div></div>"
         '<div componentkey="easyApplyFieldFocus_ea_validation_p1_0_7">'
-        '<div><input id="r6" aria-label="Headline" type="text" '
-        'aria-describedby="r6-info" value=""></div>' + counter("r6", 0, 127) + "</div>"
+        '<div><input id="«r6»" aria-label="Headline" type="text" '
+        'aria-describedby="«r6»-info" value=""></div>'
+        + counter("«r6»", 0, 127)
+        + "</div>"
     ),
 }
 
 QUESTIONS: dict[str, Any] = {
     "title": "Additional Questions",
-    "required": ["r7", "r8", "r9"],
+    "required": ["«r7»", "«r8»", "«r9»"],
     "body": (
         "<div><div><p>Notice Period*</p>"
         '<div componentkey="easyApplyFieldFocus_ea_validation_p4_0_1">'
-        '<div><input required id="r7" aria-label="Notice Period" type="text" '
-        'aria-describedby="r7-info" value="%(notice)s"></div>'
-        + counter("r7", 0, 127)
+        '<div><input required id="«r7»" aria-label="Notice Period" type="text" '
+        'aria-describedby="«r7»-info" value="%(notice)s"></div>'
+        + counter("«r7»", 0, 127)
         + "</div></div>"
         "<div><p>Spoken Languages*</p><div>"
-        '<textarea id="r8" aria-label="Spoken Languages" required rows="4" '
-        'aria-describedby="r8-info" '
+        '<textarea id="«r8»" aria-label="Spoken Languages" required rows="4" '
+        'aria-describedby="«r8»-info" '
         'componentkey="easyApplyFieldFocus_ea_validation_p4_0_2">%(languages)s</textarea>'
         "</div></div>"
         '<div componentkey="easyApplyFieldFocus_ea_validation_p4_0_3">'
         "<p>Personal data consent*</p>"
         '<fieldset aria-describedby="error-message-r9"><div>'
         '<div role="checkbox" tabindex="0" aria-checked="%(consented)s"><div><div>'
-        '<input id="r9" tabindex="-1" type="checkbox" class="covered" %(consent)s>'
-        '<label for="r9"></label></div><p>I consent to the processing of my data.</p>'
+        '<input id="«r9»" tabindex="-1" type="checkbox" class="covered" %(consent)s>'
+        '<label for="«r9»"></label></div><p>I consent to the processing of my data.</p>'
         "</div></div></div></fieldset></div></div>"
     ),
 }
@@ -133,8 +135,8 @@ REVIEW: dict[str, Any] = {
         "<p>The employer will also receive a copy of your profile</p></div>"
         "<div><h4>Contact info</h4><div><p>First name</p><p>Santiago</p></div></div>"
         '<div role="checkbox" tabindex="0" aria-label="Follow Acme to stay up to date" '
-        'aria-checked="true"><div><div><input id="r10" tabindex="-1" type="checkbox" '
-        'class="covered" checked><label for="r10"></label></div>'
+        'aria-checked="true"><div><div><input id="«r10»" tabindex="-1" type="checkbox" '
+        'class="covered" checked><label for="«r10»"></label></div>'
         "<p>Follow Acme to stay up to date</p></div></div>"
     ),
 }
@@ -226,8 +228,8 @@ const render = () => {
             }
             dialog.querySelector('#easyApplyUploadedResumeRef').innerHTML =
                 `<div role="radio" aria-label="${name}" aria-checked="true">`
-                + `<input id="r11" type="radio" checked name="resume" class="covered">`
-                + '<label for="r11"></label></div>';
+                + `<input id="«r11»" type="radio" checked name="resume" class="covered">`
+                + '<label for="«r11»"></label></div>';
             const toasts = dialog.querySelector('section.toasts');
             toasts.innerHTML = '<h2 data-testid="toasts-title">1 notification</h2>'
                 + '<div role="alert"><p>Resume uploaded successfully</p>'
@@ -532,9 +534,9 @@ async def test_a_rehearsal_answers_every_page_and_sends_nothing(dom_page, tmp_pa
         "upload",
         "toast",
         "next",
-        "check r9",
+        "check «r9»",
         "next",
-        "uncheck r10",
+        "uncheck «r10»",
         "escape",
         "discard",
     ]
@@ -550,7 +552,7 @@ async def test_the_flag_sends_it_from_the_last_page_only(dom_page):
 
     assert result.submitted is True
     assert result.confirmation == "Your application was sent to Acme"
-    assert await log(dom_page) == ["open", "next", "uncheck r10", "submit"]
+    assert await log(dom_page) == ["open", "next", "uncheck «r10»", "submit"]
 
 
 async def test_a_last_page_without_progress_is_not_sent(dom_page):

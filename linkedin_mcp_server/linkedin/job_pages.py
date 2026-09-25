@@ -627,13 +627,23 @@ _EASY_APPLY_DIALOG_PARTS = (
 )
 
 
+def _css_string(value: str) -> str:
+    """``value`` as a quoted CSS string.
+
+    JSON's quoting is CSS's for quotes and backslashes, but not for what it
+    escapes as `\\uXXXX`, which CSS reads as the letter u. The redesigned
+    dialog's ids are React's `«r8»`, so they go through as they are.
+    """
+    return json.dumps(value, ensure_ascii=False)
+
+
 def easy_apply_control_selector(control_id: str) -> str:
     """A selector for one control of the open dialog, by its id.
 
     CSS locators pierce open shadow roots on their own, which is how this
     reaches a dialog the document's own `querySelector` never sees.
     """
-    inside = f"[id={json.dumps(control_id)}]"
+    inside = f"[id={_css_string(control_id)}]"
     return ", ".join(f"{part} {inside}" for part in _EASY_APPLY_DIALOG_PARTS)
 
 
@@ -646,7 +656,7 @@ EASY_APPLY_FOLLOW_SELECTOR = ", ".join(
 
 def easy_apply_label_selector(control_id: str) -> str:
     """A selector for the label that stands in for one control of the dialog."""
-    inside = f"label[for={json.dumps(control_id)}]"
+    inside = f"label[for={_css_string(control_id)}]"
     return ", ".join(f"{part} {inside}" for part in _EASY_APPLY_DIALOG_PARTS)
 
 
@@ -664,7 +674,7 @@ def easy_apply_option_selector(list_id: str | None) -> str:
     one.
     """
     if list_id:
-        return f'[id={json.dumps(list_id)}] [role="option"]:visible'
+        return f'[id={_css_string(list_id)}] [role="option"]:visible'
     return '[role="listbox"] [role="option"]:visible'
 
 
