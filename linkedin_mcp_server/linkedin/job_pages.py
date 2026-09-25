@@ -1571,9 +1571,15 @@ class JobPageReader:
             elif edit.action == "select":
                 await control.select_option(label=edit.value, timeout=timeout)
             elif edit.action in ("check", "uncheck"):
-                await self._set_easy_apply_choice(
-                    control, edit.action == "check", wrapped=step.get("redesigned")
-                )
+                checked = edit.action == "check"
+                if step.get("redesigned"):
+                    await self._set_redesigned_choice(
+                        by_control[edit.control_id], edit.control_id, checked
+                    )
+                elif checked:
+                    await control.check(timeout=timeout)
+                else:
+                    await control.uncheck(timeout=timeout)
             elif edit.control_id == EASY_APPLY_UPLOAD_ID:
                 # The redesigned dialog has no file input until its upload
                 # button is clicked, and then only one outside the dialog, in
@@ -1593,27 +1599,47 @@ class JobPageReader:
             Path(edit.value).name for edit in edits if edit.action == "upload"
         }
 
-    async def _set_easy_apply_choice(
-        self, control: Locator, checked: bool, *, wrapped: bool | None
+    async def _set_redesigned_choice(
+        self, field: dict[str, Any], control_id: str, checked: bool
     ) -> None:
-        """Leave the radio or checkbox behind ``control`` as ``checked`` asks.
+        """Leave one option of the redesigned dialog's ``field`` as ``checked``
+        asks, the option ``control_id`` stood for when the step was read.
 
-        The redesigned dialog wraps each one in a `role="radio"` or
-        `role="checkbox"` element and gives the input `tabindex="-1"`; `check`
-        timed out on it when measured, and a click on the wrapper took. The old
-        dialog's inputs take `check` directly.
+        Each radio or checkbox sits in a `role="radio"` or `role="checkbox"`
+        wrapper with `tabindex="-1"` on the input, and `check` timed out on it
+        when measured while a click on the wrapper took. The click re-mounts the
+        input under React's next id, so an id read before it names nothing
+        after it, and one read before an earlier click may name nothing
+        already. The option is therefore found by its label in a fresh read,
+        both to click it and to confirm the click took.
         """
-        timeout = _EASY_APPLY_SET_TIMEOUT * 1000
-        if not wrapped:
-            if checked:
-                await control.check(timeout=timeout)
-            else:
-                await control.uncheck(timeout=timeout)
+        page = self._session.page
+        label = field["label"]
+        option = field["options"][field["ids"].index(control_id)]
+
+        async def current() -> dict[str, Any]:
+            step = await page.evaluate(EASY_APPLY_STEP_JS, _EASY_APPLY_MAX_OPTIONS)
+            for candidate in (step or {}).get("fields") or []:
+                if candidate["label"] == label and option in candidate["options"]:
+                    return candidate
+            raise RuntimeError(f"The Easy Apply field {label!r} is gone")
+
+        now = await current()
+        if (option in now["selected"]) == checked:
             return
-        if await control.is_checked(timeout=timeout) != checked:
-            await control.locator(_CHOICE_WRAPPER).click(timeout=timeout)
-        if await control.is_checked(timeout=timeout) != checked:
-            raise RuntimeError("An Easy Apply choice did not take its click")
+        control = page.locator(
+            easy_apply_control_selector(now["ids"][now["options"].index(option)])
+        ).first
+        await control.locator(_CHOICE_WRAPPER).click(
+            timeout=_EASY_APPLY_SET_TIMEOUT * 1000
+        )
+        deadline = self._session.monotonic() + _EASY_APPLY_SET_TIMEOUT
+        while (option in (await current())["selected"]) != checked:
+            if self._session.monotonic() >= deadline:
+                raise RuntimeError(
+                    f"The Easy Apply field {label!r} did not take its click"
+                )
+            await self._session.delay(_APPLY_POLL)
 
     async def _pick_easy_apply_suggestion(
         self, field: dict[str, Any], control: Locator, answer: str
