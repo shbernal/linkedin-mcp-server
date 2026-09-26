@@ -721,7 +721,9 @@ _EASY_APPLY_CONFIRMATION_TIMEOUT = 5.0
 _EASY_APPLY_UPLOAD_TIMEOUT = 30.0
 _EASY_APPLY_FOLLOW_TRIES = 3
 _EASY_APPLY_DISCARD_TIMEOUT = 5.0
-_EASY_APPLY_MAX_STEPS = 8
+# A guard against a dialog that never ends, not a form size: the redesigned
+# dialog puts one question per page, and a live form ran to ten.
+_EASY_APPLY_MAX_STEPS = 20
 # How long a typeahead's list gets to arrive. It is a round trip to LinkedIn
 # behind a debounce, so longer than setting a control and shorter than a step.
 _EASY_APPLY_SUGGEST_TIMEOUT = 8.0
