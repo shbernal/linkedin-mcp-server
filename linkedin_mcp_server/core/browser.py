@@ -24,6 +24,7 @@ from linkedin_mcp_server.common_utils import (
 )
 
 from linkedin_mcp_server.browser_downgrade import refuse_a_downgrade
+from linkedin_mcp_server.debug_utils import hold_message_send
 from linkedin_mcp_server.exceptions import (
     BrowserDowngradeError,
     BrowserShutdownUnconfirmedError,
@@ -554,6 +555,8 @@ class BrowserManager:
                 self._page = await open_hidden_page(self._context, startup)
             else:
                 self._page = startup
+
+            await hold_message_send(self._page, logger)
 
             logger.info("Browser context and page ready")
 
