@@ -485,9 +485,11 @@ EASY_APPLY_STEP_JS = (
         let errors;
         if (redesigned) {
             const last = group[group.length - 1];
+            // A paragraph holding a link is the question's fine print, such
+            // as a privacy policy under a consent box, never an error.
             errors = [...block.querySelectorAll('p')]
                 .filter((p) => p !== title && loose(p) && !key.contains(p)
-                    && follows(last, p))
+                    && follows(last, p) && !p.querySelector('a'))
                 .map(text);
             // The only account of a text field's limit is its counter, "0/127".
             const helper = first.id && byId(`${first.id}-info`);
