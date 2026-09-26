@@ -118,13 +118,16 @@ QUESTIONS: dict[str, Any] = {
         'aria-describedby="«r8»-info" '
         'componentkey="easyApplyFieldFocus_ea_validation_p4_0_2">%(languages)s</textarea>'
         "</div></div>"
-        '<div componentkey="easyApplyFieldFocus_ea_validation_p4_0_3">'
+        # As measured: the consent's policy link follows its wrapper, in a
+        # container of their own.
+        '<div><div componentkey="easyApplyFieldFocus_ea_validation_p4_0_3">'
         "<p>Personal data consent*</p>"
         '<fieldset aria-describedby="error-message-r9"><div>'
         '<div role="checkbox" tabindex="0" aria-checked="%(consented)s"><div><div>'
         '<input id="«r9»" tabindex="-1" type="checkbox" class="covered" %(consent)s>'
         '<label for="«r9»"></label></div><p>I consent to the processing of my data.</p>'
         "</div></div></div></fieldset></div>"
+        '<p><a href="https://example.com/privacy.pdf">Privacy Policy</a></p></div>'
         # As measured: every option's wrapper is labelled with the question.
         '<div componentkey="easyApplyFieldFocus_ea_validation_p4_0_4">'
         "<p>What is your level in English?*</p>"
