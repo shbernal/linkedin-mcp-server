@@ -124,7 +124,20 @@ QUESTIONS: dict[str, Any] = {
         '<div role="checkbox" tabindex="0" aria-checked="%(consented)s"><div><div>'
         '<input id="«r9»" tabindex="-1" type="checkbox" class="covered" %(consent)s>'
         '<label for="«r9»"></label></div><p>I consent to the processing of my data.</p>'
-        "</div></div></div></fieldset></div></div>"
+        "</div></div></div></fieldset></div>"
+        # As measured: every option's wrapper is labelled with the question.
+        '<div componentkey="easyApplyFieldFocus_ea_validation_p4_0_4">'
+        "<p>What is your level in English?*</p>"
+        '<fieldset aria-describedby="error-message-q0" role="radiogroup"><div>'
+        '<div role="radio" tabindex="0" aria-label="What is your level in English?" '
+        'aria-checked="false"><div><div><input id="«q1»" tabindex="-1" type="radio" '
+        'name="english" class="covered"><label for="«q1»"></label></div>'
+        "<div><p>Native speaker</p></div></div></div>"
+        '<div role="radio" tabindex="0" aria-label="What is your level in English?" '
+        'aria-checked="false"><div><div><input id="«q2»" tabindex="-1" type="radio" '
+        'name="english" class="covered"><label for="«q2»"></label></div>'
+        "<div><p>Bilingual</p></div></div></div>"
+        "</div></fieldset></div></div>"
     ),
 }
 
@@ -463,6 +476,13 @@ async def test_every_page_is_read_and_the_draft_discarded(dom_page):
             "options": ["I consent to the processing of my data."],
             "selected": ["I consent to the processing of my data."],
         },
+        {
+            "label": "What is your level in English?",
+            "type": "radio",
+            "required": True,
+            "options": ["Native speaker", "Bilingual"],
+            "selected": [],
+        },
     ]
     # The follow checkbox is not a question.
     assert result.steps[3]["fields"] == []
@@ -521,6 +541,7 @@ async def test_a_rehearsal_answers_every_page_and_sends_nothing(dom_page, tmp_pa
             "Notice Period": "48 hours",
             "Spoken Languages": "Spanish, French",
             "Personal data consent": True,
+            "What is your level in English?": "Bilingual",
         },
     )
 
@@ -533,6 +554,7 @@ async def test_a_rehearsal_answers_every_page_and_sends_nothing(dom_page, tmp_pa
     assert result.steps[2]["fields"][2]["selected"] == [
         "I consent to the processing of my data."
     ]
+    assert result.steps[2]["fields"][3]["selected"] == ["Bilingual"]
     # The toast over the footer is closed before Next is clicked.
     assert await log(dom_page) == [
         "open",
@@ -541,6 +563,7 @@ async def test_a_rehearsal_answers_every_page_and_sends_nothing(dom_page, tmp_pa
         "toast",
         "next",
         "check «r9»",
+        "check «q2»",
         "next",
         "uncheck «r10»",
         "escape",
