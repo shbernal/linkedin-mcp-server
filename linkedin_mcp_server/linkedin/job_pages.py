@@ -349,7 +349,10 @@ EASY_APPLY_CLOSED_JS = "() => !(" + EASY_APPLY_OPEN_JS + ")()"
 # The redesigned dialog labels a question in four ways (`label[for]`,
 # `aria-label`, a `<p>` before it, the `aria-label` of a `role="radio"` or
 # `role="checkbox"` wrapper), marks it required with an attribute or only with
-# the `*` ending its title, and leaves its errors as loose `<p>` after it. A
+# the `*` ending its title, and leaves its errors as loose `<p>` after it. An
+# option is named by its wrapper's text, and by the wrapper's `aria-label` only
+# when it has none: a question's options repeat the question there, and a
+# resume's radio holds nothing but its file name there. A
 # question's block is the largest ancestor holding no other question's control,
 # below the page's own column, so the page title is never taken for one. Its
 # resume upload has no file input until the button is clicked, so the button
@@ -381,8 +384,8 @@ EASY_APPLY_STEP_JS = (
         || text(el.closest('label'))
         || (el.getAttribute('aria-label') || '').trim()
         || (wrapperOf(el) && (
-            (wrapperOf(el).getAttribute('aria-label') || '').trim()
-            || text(wrapperOf(el)).slice(0, 300)
+            text(wrapperOf(el)).slice(0, 300)
+            || (wrapperOf(el).getAttribute('aria-label') || '').trim()
         ))
         || '';
     const isChoice = (el) => el.type === 'radio' || el.type === 'checkbox';
