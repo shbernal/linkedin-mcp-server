@@ -4,10 +4,12 @@ from urllib.parse import quote
 
 import pytest
 
+from linkedin_mcp_server.core.exceptions import InvalidReferenceError
 from linkedin_mcp_server.linkedin.job_policy import (
     dropped_filters_section_error,
     employer_apply_url,
     label_similar_jobs,
+    normalize_dismiss_ids,
     parse_posting_title,
     reconcile_search_references,
     route,
@@ -277,3 +279,22 @@ class TestParsePostingTitle:
             "",
         ]:
             assert parse_posting_title(title) is None, title
+
+
+class TestNormalizeDismissIds:
+    def test_references_become_ids_once_each_in_order(self):
+        assert normalize_dismiss_ids(
+            [
+                "222",
+                "/jobs/view/111/",
+                " 222 ",
+                "https://www.linkedin.com/jobs/view/333/",
+            ]
+        ) == ["222", "111", "333"]
+
+    def test_none_is_nothing_to_dismiss(self):
+        assert normalize_dismiss_ids(None) == []
+
+    def test_an_id_that_is_not_a_jobs_is_refused(self):
+        with pytest.raises(InvalidReferenceError):
+            normalize_dismiss_ids(["111", "not-a-job"])
