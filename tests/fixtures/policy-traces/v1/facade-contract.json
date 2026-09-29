@@ -86,7 +86,7 @@
       },
       "search_jobs": {
         "coroutine": true,
-        "signature": "(self, keywords: 'str', location: 'str | None' = None, max_pages: 'int' = 3, date_posted: 'str | None' = None, job_type: 'str | None' = None, experience_level: 'str | None' = None, work_type: 'str | None' = None, easy_apply: 'bool' = False, sort_by: 'str | None' = None, tool_timeout: 'float' = 180.0, start: 'int' = 0) -> 'dict[str, Any]'"
+        "signature": "(self, keywords: 'str', location: 'str | None' = None, max_pages: 'int' = 3, date_posted: 'str | None' = None, job_type: 'str | None' = None, experience_level: 'str | None' = None, work_type: 'str | None' = None, easy_apply: 'bool' = False, sort_by: 'str | None' = None, tool_timeout: 'float' = 180.0, start: 'int' = 0, dismiss_ids: 'list[str] | None' = None) -> 'dict[str, Any]'"
       },
       "search_people": {
         "coroutine": true,
@@ -590,6 +590,21 @@
               ],
               "default": null,
               "description": "Filter by posting date (past_hour, past_24_hours, past_week, past_month)"
+            },
+            "dismiss_ids": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Job ids to dismiss from LinkedIn job search wherever\nthis search meets them, so they stop taking result slots.\nIRREVERSIBLE: a dismissed job never shows in any later search.\nOnly for jobs the caller is done with (applied, rejected,\nalready tracked). Each card is dismissed on the page it was\nread from, and job_ids still lists it. At most 10 are\ndismissed per call; a job never met needs no dismissing."
             },
             "easy_apply": {
               "default": false,

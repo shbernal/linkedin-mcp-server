@@ -21,8 +21,9 @@ work, health checks, or background maintenance.
 - `send_message` and `connect_with_person` are write actions. Use them only when
   the user explicitly authorizes the exact recipient and action. Confirm the
   final message or connection note unless the user has already supplied it.
-- `dismiss_job` hides a job from every later search and cannot be undone. Use
-  it only for jobs the user asked to dismiss.
+- `dismiss_job`, and `search_jobs` given `dismiss_ids`, hide a job from every
+  later search and cannot be undone. Use them only for jobs the user asked to
+  dismiss.
 - Do not retry a failed write action unless the result proves it was not sent.
 
 ## Browser and authentication
@@ -47,8 +48,9 @@ instances, clear profiles, or replace the user's browser session.
   `get_job_apply_url`.
 - Content: `get_feed` and `search_posts`.
 - Messages: `get_inbox`, `get_conversation`, and `search_conversations`.
-- Writes: `send_message`, `connect_with_person` and `dismiss_job`, subject to
-  the explicit authorization rules above.
+- Writes: `send_message`, `connect_with_person`, `dismiss_job` and
+  `search_jobs` with `dismiss_ids`, subject to the explicit authorization rules
+  above.
 - Cleanup: use `close_session` only when the user asks to end the managed
   browser session or when the current LinkedIn task is finished and no follow-up
   call is expected.
