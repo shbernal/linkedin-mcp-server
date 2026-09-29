@@ -983,21 +983,13 @@ class JobPageReader:
             raise LinkedInOperationError("The job search page could not be read")
         return found
 
-    async def _locate_search_card(self, job_id: str) -> dict[str, int]:
-        """Find ``job_id``'s card, scrolling the rail once when it is not there.
+    async def _await_card_render(
+        self, job_id: str, found: dict[str, int]
+    ) -> dict[str, int]:
+        """Poll a found card until its buttons render.
 
-        A found card is polled until its buttons render, since an occluded
-        card is empty until it nears the viewport. A scroll that
-        raised leaves the rest of the rail unread, so it is an error rather
-        than a job the search does not list.
+        An occluded card is empty until it nears the viewport.
         """
-        found = await self._find_search_card(job_id)
-        if not found["matches"]:
-            if await self._session.scroll_job_sidebar(deadline=SCROLL_DEADLINE_MAX):
-                raise LinkedInOperationError(
-                    "The job search results could not be scrolled to the end"
-                )
-            found = await self._find_search_card(job_id)
         deadline = self._session.monotonic() + _SEARCH_CARD_RENDER_TIMEOUT
         while (
             found["matches"] == 1
@@ -1007,6 +999,42 @@ class JobPageReader:
             await self._session.delay(_SEARCH_POLL)
             found = await self._find_search_card(job_id)
         return found
+
+    async def _locate_search_card(self, job_id: str) -> dict[str, int]:
+        """Find ``job_id``'s card, scrolling the rail once when it is not there.
+
+        A scroll that raised leaves the rest of the rail unread, so it is an
+        error rather than a job the search does not list.
+        """
+        found = await self._find_search_card(job_id)
+        if not found["matches"]:
+            if await self._session.scroll_job_sidebar(deadline=SCROLL_DEADLINE_MAX):
+                raise LinkedInOperationError(
+                    "The job search results could not be scrolled to the end"
+                )
+            found = await self._find_search_card(job_id)
+        return await self._await_card_render(job_id, found)
+
+    async def _dismiss_found_card(
+        self, job_id: str, found: dict[str, int]
+    ) -> SearchCardOutcome:
+        """Click the dismiss button ``found`` marked and wait for the undo state."""
+        if not found["matches"]:
+            return "absent"
+        if found["dismiss"] != 1:
+            if found["matches"] == 1 and found["undo"] and not found["dismiss"]:
+                return "already_dismissed"
+            return "no_button"
+
+        page = self._session.page
+        await page.locator(f"button[{_DISMISS_MARK}]").click(timeout=5000)
+        deadline = self._session.monotonic() + _DISMISS_TIMEOUT
+        while self._session.monotonic() < deadline:
+            await self._session.delay(_SEARCH_POLL)
+            found = await self._find_search_card(job_id)
+            if found["undo"] and not found["dismiss"]:
+                return "dismissed"
+        return "not_dismissed"
 
     async def search_lists_job(self, url: str, job_id: str, min_cards: int = 1) -> bool:
         """Whether the job search at ``url`` shows a card for ``job_id``.
@@ -1046,20 +1074,17 @@ class JobPageReader:
         """
         await self._open_job_search(url)
         found = await self._locate_search_card(job_id)
-        cards = found["cards"]
-        if not found["matches"]:
-            return "absent", cards
-        if found["dismiss"] != 1:
-            if found["matches"] == 1 and found["undo"] and not found["dismiss"]:
-                return "already_dismissed", cards
-            return "no_button", cards
+        return await self._dismiss_found_card(job_id, found), found["cards"]
 
-        page = self._session.page
-        await page.locator(f"button[{_DISMISS_MARK}]").click(timeout=5000)
-        deadline = self._session.monotonic() + _DISMISS_TIMEOUT
-        while self._session.monotonic() < deadline:
-            await self._session.delay(_SEARCH_POLL)
-            found = await self._find_search_card(job_id)
-            if found["undo"] and not found["dismiss"]:
-                return "dismissed", cards
-        return "not_dismissed", cards
+    async def dismiss_listed_card(self, job_id: str) -> SearchCardOutcome:
+        """Dismiss ``job_id``'s card on the search page already open.
+
+        For a job whose id this page's rail was just read with, so the card
+        is not searched for by scrolling. A dismissed card stays in place in
+        its undo state until the next load, so the ids and offset already read
+        from the page still hold.
+        """
+        found = await self._find_search_card(job_id)
+        return await self._dismiss_found_card(
+            job_id, await self._await_card_render(job_id, found)
+        )

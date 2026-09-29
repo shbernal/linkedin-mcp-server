@@ -2920,6 +2920,195 @@ class TestSearchJobs:
         assert jobs[2] == {"kind": "job", "url": "/jobs/view/333/"}
 
 
+class TestSearchJobsDismiss:
+    """search_jobs dismissing the `dismiss_ids` cards it meets, in place."""
+
+    @pytest.fixture(autouse=True)
+    def _set_search_url(self, mock_page):
+        mock_page.url = "https://www.linkedin.com/jobs/search/?keywords=python"
+
+    @staticmethod
+    async def _search(mock_page, pages, outcomes, *, events=None, sleep=None, **kwargs):
+        """Run a search over ``pages`` of ids, answering dismissals from
+        ``outcomes`` (a job id to an outcome or an exception to raise).
+
+        ``events`` receives each page navigation and each dismissal in order.
+        """
+        reader = _reader(mock_page)
+        events = [] if events is None else events
+        texts = iter(f"Page {n + 1}" for n in range(len(pages)))
+        ids = iter(pages)
+
+        async def page_read(url, *args, **kw):
+            navigate(mock_page, url)
+            events.append(("page", url))
+            return captured(mock_page, extracted(next(texts)))
+
+        async def dismiss(job_id):
+            events.append(("dismiss", job_id))
+            outcome = outcomes.get(job_id, "dismissed")
+            if isinstance(outcome, BaseException):
+                raise outcome
+            return outcome
+
+        with (
+            patch.object(reader._pages, "_extract_search_page", side_effect=page_read),
+            patch.object(
+                reader._pages,
+                "_extract_job_ids",
+                new_callable=AsyncMock,
+                side_effect=lambda **kw: next(ids),
+            ),
+            patch.object(
+                reader._pages,
+                "_extract_promoted_job_ids",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+            patch.object(
+                reader._pages,
+                "_get_total_search_pages",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch.object(
+                reader._pages, "dismiss_listed_card", side_effect=dismiss
+            ) as dismiss_mock,
+            patch(
+                "linkedin_mcp_server.linkedin.jobs.asyncio.sleep",
+                new=sleep or AsyncMock(),
+            ),
+        ):
+            result = await reader.search_jobs("python", max_pages=len(pages), **kwargs)
+        return result, dismiss_mock
+
+    async def test_known_jobs_are_dismissed_on_the_page_they_are_read_from(
+        self, mock_page
+    ):
+        events: list = []
+        result, _ = await self._search(
+            mock_page,
+            [["111", "222"], ["333", "444"]],
+            {"444": "already_dismissed"},
+            events=events,
+            dismiss_ids=["/jobs/view/222/", "444", "999"],
+        )
+
+        assert [e[0] if e[0] == "page" else e for e in events] == [
+            "page",
+            ("dismiss", "222"),
+            "page",
+            ("dismiss", "444"),
+        ]
+        assert result["dismissed"] == {"222": "dismissed", "444": "already_dismissed"}
+        # The dismissed cards stay in place, so nothing read from the pages
+        # moves: the ids, and the offset the next call resumes from.
+        assert result["job_ids"] == ["111", "222", "333", "444"]
+        assert result["pagination"]["next_offset"] == 4
+
+    async def test_without_dismiss_ids_nothing_is_dismissed_or_reported(
+        self, mock_page
+    ):
+        result, dismiss = await self._search(mock_page, [["111"]], {})
+
+        dismiss.assert_not_awaited()
+        assert "dismissed" not in result
+
+    async def test_no_known_job_met_is_an_empty_report(self, mock_page):
+        result, dismiss = await self._search(
+            mock_page, [["111"]], {}, dismiss_ids=["999"]
+        )
+
+        dismiss.assert_not_awaited()
+        assert result["dismissed"] == {}
+
+    async def test_a_job_met_twice_is_dismissed_once(self, mock_page):
+        result, dismiss = await self._search(
+            mock_page, [["111", "222"], ["222", "333"]], {}, dismiss_ids=["222"]
+        )
+
+        assert dismiss.await_count == 1
+        assert result["dismissed"] == {"222": "dismissed"}
+
+    async def test_clicks_past_the_cap_are_skipped(self, mock_page):
+        """Only clicks count: a card already dismissed costs none."""
+        ids = [str(100 + n) for n in range(13)]
+        result, dismiss = await self._search(
+            mock_page,
+            [ids],
+            {"100": "already_dismissed", "101": "no_button", "102": "not_dismissed"},
+            dismiss_ids=ids,
+        )
+
+        assert dismiss.await_count == 12
+        assert [result["dismissed"][jid] for jid in ids[:3]] == [
+            "already_dismissed",
+            "no_button",
+            "not_dismissed",
+        ]
+        assert set(result["dismissed"][jid] for jid in ids[3:11]) == {"dismissed"}
+        assert result["dismissed"]["111"] == "dismissed"
+        assert result["dismissed"]["112"] == "skipped_cap"
+
+    async def test_clicks_are_spaced_by_the_navigation_delay(self, mock_page):
+        sleep = AsyncMock()
+        await self._search(
+            mock_page,
+            [["111", "222", "333"]],
+            {"111": "already_dismissed"},
+            sleep=sleep,
+            dismiss_ids=["111", "222", "333"],
+        )
+
+        # 111 clicked nothing, so only the click after 222's waits.
+        assert sleep.await_args_list == [((jobs_module.NAV_DELAY,),)]
+
+    async def test_a_spent_budget_skips_the_dismissals(self, mock_page):
+        result, dismiss = await self._search(
+            mock_page, [["111"]], {}, dismiss_ids=["111"], tool_timeout=0.0
+        )
+
+        dismiss.assert_not_awaited()
+        assert result["job_ids"] == ["111"]
+        assert result["dismissed"] == {"111": "skipped_time_budget"}
+
+    async def test_a_card_not_found_reports_no_button(self, mock_page):
+        result, _ = await self._search(
+            mock_page, [["111"]], {"111": "absent"}, dismiss_ids=["111"]
+        )
+
+        assert result["dismissed"] == {"111": "no_button"}
+
+    async def test_a_failed_dismissal_keeps_the_search(self, mock_page):
+        result, _ = await self._search(
+            mock_page,
+            [["111", "222"], ["333"]],
+            {"111": PlaywrightTimeoutError("click timed out")},
+            dismiss_ids=["111", "222"],
+        )
+
+        assert result["dismissed"] == {"111": "not_dismissed", "222": "dismissed"}
+        assert result["job_ids"] == ["111", "222", "333"]
+        assert "section_errors" not in result
+
+    async def test_an_auth_barrier_while_dismissing_raises(self, mock_page):
+        with pytest.raises(AuthenticationError):
+            await self._search(
+                mock_page,
+                [["111"]],
+                {"111": AuthenticationError("signed out")},
+                dismiss_ids=["111"],
+            )
+
+    async def test_an_invalid_id_is_refused_before_any_page(self, mock_page):
+        events: list = []
+        with pytest.raises(LinkedInOperationError):
+            await self._search(
+                mock_page, [["111"]], {}, events=events, dismiss_ids=["nope"]
+            )
+        assert events == []
+
+
 class TestGetSavedJobs:
     """Tests for get_saved_jobs with job ID extraction and pagination."""
 

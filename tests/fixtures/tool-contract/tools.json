@@ -700,8 +700,9 @@
       }
     },
     "annotations": {
+      "destructiveHint": true,
       "openWorldHint": true,
-      "readOnlyHint": true
+      "readOnlyHint": false
     },
     "description": "Search for jobs on LinkedIn.\n\nReturns job_ids that can be passed to get_job_details for full info.",
     "inputSchema": {
@@ -718,6 +719,21 @@
           ],
           "default": null,
           "description": "Filter by posting date (past_hour, past_24_hours, past_week, past_month)"
+        },
+        "dismiss_ids": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Job ids to dismiss from LinkedIn job search wherever\nthis search meets them, so they stop taking result slots.\nIRREVERSIBLE: a dismissed job never shows in any later search.\nOnly for jobs the caller is done with (applied, rejected,\nalready tracked). Each card is dismissed on the page it was\nread from, and job_ids still lists it. At most 10 are\ndismissed per call; a job never met needs no dismissing."
         },
         "easy_apply": {
           "default": false,

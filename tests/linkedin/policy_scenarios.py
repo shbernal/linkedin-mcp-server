@@ -394,6 +394,35 @@ async def _job_search_scenario(route: str = "/jobs/search/") -> dict[str, Any]:
     )
 
 
+async def _job_search_dismiss_scenario() -> dict[str, Any]:
+    recorder = TraceRecorder("search_jobs__dismiss_in_place", _COMMON_ALLOWED)
+    clock = FakeClock(recorder)
+    page = _page(recorder)
+    page.goto_landings.append("https://www.linkedin.com/jobs/search/?keywords=python")
+    page.script("evaluate:root_content", _root("Python jobs\n3 results", []))
+    page.script("evaluate:job_total_pages", None)
+    page.script("evaluate:job_ids", {"ids": ["101", "102", "103"], "scoped": True})
+    page.script("evaluate:job_promoted_ids", [])
+    page.declare_locator("button[data-mcp-dismiss]", "search_card_dismiss")
+    page.script(
+        "evaluate:job_search_card",
+        {"cards": 3, "matches": 1, "dismiss": 1, "undo": 0},
+        {"cards": 3, "matches": 1, "dismiss": 0, "undo": 1},
+        {"cards": 3, "matches": 1, "dismiss": 0, "undo": 1},
+    )
+    page.script("search_card_dismiss.click", None)
+    extractor = _extractor(page)
+    dismiss_ids = ["102", "103", "999"]
+    arguments = {"keywords": "python", "max_pages": 1, "dismiss_ids": dismiss_ids}
+    async with boundaries(recorder, clock):
+        with recorder.context("search_jobs", "search_results"):
+            result = await extractor.search_jobs(
+                "python", max_pages=1, dismiss_ids=dismiss_ids
+            )
+    page.assert_clean()
+    return recorder.trace({"method": "search_jobs", "arguments": arguments}, result)
+
+
 async def _dismiss_job_scenario() -> dict[str, Any]:
     recorder = TraceRecorder("dismiss_job__dismissed", _COMMON_ALLOWED | {"title"})
     clock = FakeClock(recorder)
@@ -1176,6 +1205,7 @@ async def build_policy_traces() -> dict[str, dict[str, Any]]:
         "job-search-metadata-upgrade.json": await _job_search_upgrade_scenario(),
         "saved-jobs.json": await _saved_jobs_scenario(),
         "dismiss-job.json": await _dismiss_job_scenario(),
+        "job-search-dismiss.json": await _job_search_dismiss_scenario(),
         "feed-stale.json": await _feed_stale_scenario(),
         "feed-response-success.json": await _feed_response_scenario(body_failure=False),
         "feed-response-failure.json": await _feed_response_scenario(body_failure=True),
