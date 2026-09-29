@@ -8,6 +8,8 @@ from typing import Literal
 from urllib.parse import parse_qs, urlparse
 
 
+from linkedin_mcp_server.core.exceptions import InvalidReferenceError
+from linkedin_mcp_server.linkedin.identifiers import normalize_job_id
 from linkedin_mcp_server.linkedin.link_metadata import (
     JOB_PATH_RE,
     Reference,
@@ -267,6 +269,27 @@ SCROLL_BUDGET_TOTAL = 60.0
 # The timeout arrives as an argument so this budget matches the timeout the
 # server registered for the tool, including directly constructed servers.
 SEARCH_TIMEOUT_FRACTION = 0.8
+
+# How many cards one `search_jobs` call may click dismiss on. Each click is a
+# write to the account, and LinkedIn flags automated volume; a known job past
+# the cap is met again, and dismissed, by a later search.
+MAX_INLINE_DISMISSALS = 10
+
+
+def normalize_dismiss_ids(ids: list[str] | None) -> list[str]:
+    """``search_jobs``'s ``dismiss_ids`` as numeric job ids, first seen first.
+
+    Raises `InvalidReferenceError` on an id that is not a job's, so a typo is
+    refused before any browser work rather than silently never matched.
+    """
+    normalized: dict[str, None] = {}
+    for job_id in ids or ():
+        try:
+            normalized[normalize_job_id(job_id)] = None
+        except InvalidReferenceError as e:
+            raise InvalidReferenceError(f"dismiss_ids holds {job_id!r}: {e}") from e
+    return list(normalized)
+
 
 # The job tracker, which lists the account's jobs one stage at a time with
 # `?stage=`. The old `/my-items/saved-jobs/` redirects here and drops the
