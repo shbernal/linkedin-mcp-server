@@ -1,7 +1,8 @@
 """Browser-DOM tests for dismissing a job from a LinkedIn job search.
 
 The unit suite mocks ``page.evaluate``, so the program behind
-``JobPageReader.dismiss_search_card`` never executes there. These run the whole
+``JobPageReader.dismiss_search_card`` and ``dismiss_listed_card`` never
+executes there. These run the whole
 action against a synthetic results list in headless chromium, with the
 navigation stubbed, and read a synthetic posting's document title the way
 ``JobPageReader.read_posting_title`` does. The markup carries the structure measured on 2026-09-28:
@@ -318,6 +319,71 @@ async def test_linkedin_may_add_the_current_job_and_move_to_its_redesign(dom_pag
         dom_page, search(card("222")), "111", landing=landing, asked=WORLDWIDE_URL
     )
     assert found is False
+
+
+async def act_in_place(
+    page, html: str, *job_ids: str
+) -> list[job_pages.SearchCardOutcome]:
+    """Serve ``html`` as an open search and dismiss the way search_jobs does."""
+    await page.goto(SEARCH_URL)
+    await page.set_content(html)
+    reader = _reader(page)
+    with (
+        patch.object(
+            reader._navigator, "_navigate_to_page", new_callable=AsyncMock
+        ) as navigate,
+        patch.object(
+            PageSession, "scroll_job_sidebar", new_callable=AsyncMock
+        ) as scroll,
+    ):
+        outcomes = [await reader.dismiss_listed_card(job_id) for job_id in job_ids]
+    navigate.assert_not_awaited()
+    scroll.assert_not_awaited()
+    return outcomes
+
+
+async def test_cards_on_the_open_page_are_dismissed_in_place(dom_page):
+    html = search(card("111"), card("222"), card("333"))
+
+    assert await act_in_place(dom_page, html, "111", "333") == [
+        "dismissed",
+        "dismissed",
+    ]
+    assert await chosen(dom_page) == ["111", "333"]
+    # Both stay in the list in their undo state, so the page keeps its order.
+    ids = await dom_page.evaluate(
+        "() => [...document.querySelectorAll('li')]"
+        ".map((li) => li.dataset.occludableJobId)"
+    )
+    assert ids == ["111", "222", "333"]
+    assert await dom_page.locator('[data-test-icon="undo-small"]').count() == 2
+
+
+async def test_an_occluded_card_on_the_open_page_is_waited_for(dom_page):
+    html = search(
+        '<li data-occludable-job-id="111"></li>',
+        script=(
+            "setTimeout(() => {"
+            "document.querySelector('li').outerHTML = "
+            + repr(card("111"))
+            + ";"
+            + DISMISS_SCRIPT
+            + "}, 300);"
+        ),
+    )
+
+    assert await act_in_place(dom_page, html, "111") == ["dismissed"]
+
+
+async def test_the_open_page_reports_an_undo_card_and_a_missing_one(dom_page):
+    html = search(card("111", UNDO), card("222", MORE))
+
+    assert await act_in_place(dom_page, html, "111", "222", "999") == [
+        "already_dismissed",
+        "no_button",
+        "absent",
+    ]
+    assert await chosen(dom_page) == []
 
 
 async def read_title(page, landing: str, html: str) -> tuple[str, str]:

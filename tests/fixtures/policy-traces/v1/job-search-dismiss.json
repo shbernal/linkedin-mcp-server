@@ -1,0 +1,278 @@
+{
+  "call": {
+    "arguments": {
+      "dismiss_ids": [
+        "102",
+        "103",
+        "999"
+      ],
+      "keywords": "python",
+      "max_pages": 1
+    },
+    "method": "search_jobs"
+  },
+  "events": [
+    {
+      "call": "search_jobs",
+      "callback_id": "callback-1",
+      "event": "framenavigated",
+      "kind": "listener.add",
+      "section": "search_results"
+    },
+    {
+      "call": "search_jobs",
+      "extra": {
+        "target_url": "https://www.linkedin.com/jobs/search/?keywords=python",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-before-goto",
+      "section": "search_results"
+    },
+    {
+      "call": "search_jobs",
+      "kind": "navigate",
+      "landed_url": "https://www.linkedin.com/jobs/search/?keywords=python",
+      "requested_url": "https://www.linkedin.com/jobs/search/?keywords=python",
+      "section": "search_results",
+      "timeout_ms": 30000,
+      "wait_until": "domcontentloaded"
+    },
+    {
+      "call": "search_jobs",
+      "description": "goto https://www.linkedin.com/jobs/search/?keywords=python",
+      "kind": "boundary.stabilize",
+      "result": null,
+      "section": "search_results"
+    },
+    {
+      "call": "search_jobs",
+      "extra": {
+        "target_url": "https://www.linkedin.com/jobs/search/?keywords=python",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-after-goto",
+      "section": "search_results"
+    },
+    {
+      "call": "search_jobs",
+      "kind": "boundary.auth_quick",
+      "result": null,
+      "section": "search_results"
+    },
+    {
+      "call": "search_jobs",
+      "callback_id": "callback-1",
+      "event": "framenavigated",
+      "kind": "listener.remove",
+      "section": "search_results"
+    },
+    {
+      "call": "search_jobs",
+      "kind": "boundary.rate_limit",
+      "section": "search_results"
+    },
+    {
+      "call": "search_jobs",
+      "kind": "evaluate",
+      "operation": "document_origin",
+      "program_digest": "695b5d466ef7",
+      "section": "search_results"
+    },
+    {
+      "call": "search_jobs",
+      "kind": "wait_for_selector",
+      "operation": "main",
+      "section": "search_results",
+      "selector": "main",
+      "state": "visible",
+      "timeout_ms": null
+    },
+    {
+      "call": "search_jobs",
+      "dismissed": false,
+      "kind": "boundary.modal",
+      "section": "search_results"
+    },
+    {
+      "call": "search_jobs",
+      "callback_id": "callback-2",
+      "event": "framenavigated",
+      "kind": "listener.add",
+      "section": "search_results"
+    },
+    {
+      "actual_scrolls": 2,
+      "call": "search_jobs",
+      "deadline": 12.0,
+      "kind": "boundary.scroll_sidebar",
+      "max_scrolls": 10,
+      "min_budget": 0.4,
+      "moved": false,
+      "poll_interval": 0.15,
+      "section": "search_results",
+      "settle_timeout": 3.0
+    },
+    {
+      "call": "search_jobs",
+      "callback_id": "callback-2",
+      "event": "framenavigated",
+      "kind": "listener.remove",
+      "section": "search_results"
+    },
+    {
+      "arg": {
+        "selectors": [
+          "main"
+        ]
+      },
+      "call": "search_jobs",
+      "kind": "evaluate",
+      "operation": "root_content",
+      "program_digest": "e6b2be4ebddd",
+      "section": "search_results"
+    },
+    {
+      "call": "search_jobs",
+      "kind": "evaluate",
+      "operation": "document_origin",
+      "program_digest": "695b5d466ef7",
+      "section": "search_results"
+    },
+    {
+      "call": "search_jobs",
+      "kind": "evaluate",
+      "operation": "job_total_pages",
+      "program_digest": "181437b6d5bb",
+      "section": "search_results"
+    },
+    {
+      "arg": {
+        "scoped": true,
+        "selector": "a[href*=\"/jobs/view/\"], [componentkey^=\"job-card-component-ref-\"]"
+      },
+      "call": "search_jobs",
+      "kind": "evaluate",
+      "operation": "job_ids",
+      "program_digest": "74cc40cf81cb",
+      "section": "search_results"
+    },
+    {
+      "arg": {
+        "label": "Promoted",
+        "selector": "a[href*=\"/jobs/view/\"], [componentkey^=\"job-card-component-ref-\"]"
+      },
+      "call": "search_jobs",
+      "kind": "evaluate",
+      "operation": "job_promoted_ids",
+      "program_digest": "c40abbfe909d",
+      "section": "search_results"
+    },
+    {
+      "arg": {
+        "jobId": "102",
+        "mark": "data-mcp-dismiss"
+      },
+      "call": "search_jobs",
+      "kind": "evaluate",
+      "operation": "job_search_card",
+      "program_digest": "47fe41b1b408",
+      "section": "search_results"
+    },
+    {
+      "call": "search_jobs",
+      "kind": "locator.create",
+      "locator": "search_card_dismiss",
+      "parent": null,
+      "section": "search_results",
+      "selector": "button[data-mcp-dismiss]"
+    },
+    {
+      "call": "search_jobs",
+      "kind": "locator.click",
+      "locator": "search_card_dismiss",
+      "section": "search_results",
+      "timeout_ms": 5000
+    },
+    {
+      "call": "search_jobs",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.25,
+      "section": "search_results"
+    },
+    {
+      "arg": {
+        "jobId": "102",
+        "mark": "data-mcp-dismiss"
+      },
+      "call": "search_jobs",
+      "kind": "evaluate",
+      "operation": "job_search_card",
+      "program_digest": "47fe41b1b408",
+      "section": "search_results"
+    },
+    {
+      "call": "search_jobs",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 2.0,
+      "section": "search_results"
+    },
+    {
+      "arg": {
+        "jobId": "103",
+        "mark": "data-mcp-dismiss"
+      },
+      "call": "search_jobs",
+      "kind": "evaluate",
+      "operation": "job_search_card",
+      "program_digest": "47fe41b1b408",
+      "section": "search_results"
+    }
+  ],
+  "result": {
+    "dismissed": {
+      "102": "dismissed",
+      "103": "already_dismissed"
+    },
+    "job_ids": [
+      "101",
+      "102",
+      "103"
+    ],
+    "pagination": {
+      "next_offset": 3,
+      "pages_fetched": 1,
+      "reason": "max_pages"
+    },
+    "promoted_job_ids": [],
+    "references": {
+      "search_results": [
+        {
+          "kind": "job",
+          "url": "/jobs/view/101/"
+        },
+        {
+          "kind": "job",
+          "url": "/jobs/view/102/"
+        },
+        {
+          "kind": "job",
+          "url": "/jobs/view/103/"
+        }
+      ]
+    },
+    "sections": {
+      "search_results": "Python jobs\n3 results"
+    },
+    "total": {
+      "count": 3,
+      "exact": true
+    },
+    "url": "https://www.linkedin.com/jobs/search/?keywords=python"
+  },
+  "scenario": "search_jobs__dismiss_in_place",
+  "schema_version": 1
+}
