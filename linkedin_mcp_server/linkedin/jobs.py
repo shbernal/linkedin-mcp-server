@@ -25,6 +25,7 @@ from linkedin_mcp_server.linkedin.identifiers import job_view_url, normalize_job
 from linkedin_mcp_server.linkedin.job_pages import JobPageReader
 from linkedin_mcp_server.linkedin.job_policy import (
     JOB_SEARCH_PATHS,
+    MAX_INLINE_DISMISSALS,
     RESULTS_PER_LINKEDIN_PAGE,
     SAVED_JOBS_PAGE_SIZE,
     SAVED_JOBS_PATHS,
@@ -41,6 +42,7 @@ from linkedin_mcp_server.linkedin.job_policy import (
     lost_keywords_section_error,
     missing_description_section_error,
     no_matching_jobs_section_error,
+    normalize_dismiss_ids,
     posting_state,
     reconcile_search_references,
 )
@@ -193,6 +195,7 @@ class JobReader:
         sort_by: str | None = None,
         tool_timeout: float = DEFAULT_TOOL_TIMEOUT_SECONDS,
         start: int = 0,
+        dismiss_ids: list[str] | None = None,
     ) -> dict[str, Any]:
         """Search for jobs with pagination and job ID extraction.
 
@@ -213,13 +216,21 @@ class JobReader:
             tool_timeout: Seconds the caller allows the whole search
             start: Result offset of the first page, usually a previous
                 call's ``pagination.next_offset``
+            dismiss_ids: Jobs to dismiss where this search meets them. Each
+                card is dismissed on the results page it was read from, after
+                the page is read, so ``job_ids`` and paging are unchanged.
 
         Returns:
             {url, sections: {search_results: text}, job_ids: [str],
             pagination: {pages_fetched, next_offset, reason}}. ``pagination``
             is absent when a failure stopped the search, which
-            ``section_errors`` then explains.
+            ``section_errors`` then explains. With ``dismiss_ids``, also
+            ``dismissed: {job_id: outcome}`` for every one of them the search
+            met.
         """
+        to_dismiss = set(normalize_dismiss_ids(dismiss_ids))
+        dismissed: dict[str, str] = {}
+        clicks = 0
         base_url = build_job_search_url(
             keywords,
             location=location,
@@ -560,6 +571,23 @@ class JobReader:
                 if page_refs:
                     page_references.extend(page_refs)
 
+                # Last on the page, once everything it contributes is kept,
+                # and before the next navigation reloads the cards away.
+                for jid in new_ids:
+                    if jid not in to_dismiss:
+                        continue
+                    if clicks >= MAX_INLINE_DISMISSALS:
+                        dismissed[jid] = "skipped_cap"
+                        continue
+                    if time.monotonic() - started >= budget:
+                        dismissed[jid] = "skipped_time_budget"
+                        continue
+                    if clicks:
+                        await asyncio.sleep(NAV_DELAY)
+                    dismissed[jid] = await self._dismiss_listed(jid)
+                    if dismissed[jid] in ("dismissed", "not_dismissed"):
+                        clicks += 1
+
             except LinkedInOperationError:
                 raise
             except Exception as e:
@@ -612,7 +640,27 @@ class JobReader:
                 "next_offset": offset,
                 "reason": stop_reason,
             }
+        if dismiss_ids is not None:
+            result["dismissed"] = dismissed
         return result
+
+    async def _dismiss_listed(self, job_id: str) -> str:
+        """Dismiss a card on the open results page, answering with its outcome.
+
+        A card the rail listed but no `data-occludable-job-id` card holds is
+        reported as ``no_button``, since from the caller's side the same thing
+        is missing. An operation error, such as a rate limit or an auth barrier,
+        raises as it would anywhere on the page; any other failure is
+        ``not_dismissed`` and never costs the search its results.
+        """
+        try:
+            outcome = await self._pages.dismiss_listed_card(job_id)
+        except LinkedInOperationError:
+            raise
+        except Exception as e:
+            logger.warning("Could not dismiss job %s: %s", job_id, e)
+            return "not_dismissed"
+        return "no_button" if outcome == "absent" else outcome
 
     async def _matches_none_before_notice(self, text: str) -> bool:
         """Whether the redesigned search put no result above its notice.
