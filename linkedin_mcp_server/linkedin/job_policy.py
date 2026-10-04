@@ -526,6 +526,14 @@ EASY_APPLY_SUBMIT_UNCONFIRMED = (
 )
 
 
+EASY_APPLY_SUBMIT_UNKNOWN = (
+    "The Easy Apply dialog's last page does not say for certain that its "
+    "button is Submit: its progress does not read 100, and it is not a "
+    "one-page form showing the follow-the-company box. Its Submit could not be "
+    "told from Next. Nothing was sent."
+)
+
+
 EASY_APPLY_DRAFT_LEFT = (
     "The Easy Apply dialog could not be closed and its draft discarded, so "
     "LinkedIn may keep a saved application for this posting."
