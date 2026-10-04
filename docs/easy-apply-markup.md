@@ -169,8 +169,9 @@ between buttons.
 | 6 | Submit application |
 
 The button that moves forward is always the last one. It is Submit on the page
-whose progress reads 100, and only there. "Review" leads to the last page
-rather than submitting anything.
+whose progress reads 100, and on the only page of a
+[one-page form](#a-one-page-form), and nowhere else. "Review" leads to the last
+page rather than submitting anything.
 
 ### Fields
 
@@ -287,10 +288,36 @@ showed "Application status" and "Application submitted" above its
 description. No dialog with text was open when the confirmation was read a
 moment later, so the posting's line is what answered.
 
+### A one-page form
+
+Measured 2026-10-04 against job posting `4471889788` (Holidog), headless, with
+the dialog opened once, read for eight seconds and its draft discarded. The
+form is a single page, "Contact info" (email and phone-code selects, phone,
+the resume radios and the upload button), and it is also the last one:
+
+- No progress at all: no `<progress>`, no `role="progressbar"`, no
+  `aria-valuenow` anywhere in the dialog, and no "n/N pages" text. Nothing
+  appeared over the eight seconds, and the dialog's markup did not change, so
+  this is the form's shape and not a late render.
+- The footer holds one `<button type="button">`, "Submit application", with a
+  UUID `componentkey` and nothing else, as on the six-page form's last page.
+  There is no Back.
+- The follow box (`div[role="checkbox"][aria-label="Follow Holidog to stay up
+  to date with their page"][aria-checked="true"]`, outside every
+  `easyApplyFieldFocus_` wrapper) sits on this page under the questions,
+  followed by the "answers and resume will be saved" fine print.
+- Control ids read `_r_c_`, `_r_e_` rather than `«r8»`: React's generated
+  form, in its newer spelling.
+
+So the last page is told by one of two readings: progress at 100, or no
+progress with a footer of one button and the follow box. A page showing
+neither is not taken for the last one.
+
 ### Not measured
 
 - A typeahead's suggestion list, and whether a `role="option"` list appears.
-- A select, radio or checkbox question beyond the ones above, and a one-page
-  form.
+- A select, radio or checkbox question beyond the ones above.
+- A one-page form for a company the account already follows, which may show no
+  follow box.
 - Whether an answer typed and then discarded comes back as a prefill.
 - Any locale other than en-US.
