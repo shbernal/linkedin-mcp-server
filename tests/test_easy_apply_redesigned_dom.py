@@ -128,6 +128,13 @@ QUESTIONS: dict[str, Any] = {
     ),
 }
 
+FOLLOW = (
+    '<div role="checkbox" tabindex="0" aria-label="Follow Acme to stay up to date" '
+    'aria-checked="true"><div><div><input id="«r10»" tabindex="-1" type="checkbox" '
+    'class="covered" checked><label for="«r10»"></label></div>'
+    "<p>Follow Acme to stay up to date</p></div></div>"
+)
+
 REVIEW: dict[str, Any] = {
     "title": "",
     "required": [],
@@ -135,12 +142,13 @@ REVIEW: dict[str, Any] = {
         "<div><h3>Review your application</h3>"
         "<p>The employer will also receive a copy of your profile</p></div>"
         "<div><h4>Contact info</h4><div><p>First name</p><p>Santiago</p></div></div>"
-        '<div role="checkbox" tabindex="0" aria-label="Follow Acme to stay up to date" '
-        'aria-checked="true"><div><div><input id="«r10»" tabindex="-1" type="checkbox" '
-        'class="covered" checked><label for="«r10»"></label></div>'
-        "<p>Follow Acme to stay up to date</p></div></div>"
+        + FOLLOW
     ),
 }
+
+# Measured on 2026-10-04: a form of one page shows no progress at all, its
+# footer holds Submit alone, and the follow box sits under its questions.
+ONE_PAGE: dict[str, Any] = dict(CONTACT, body=CONTACT["body"] + FOLLOW, bare=True)
 
 FILLED = {
     "phone": "600000000",
@@ -194,7 +202,7 @@ const render = () => {
         + '<div data-testid="lazy-column"><div>'
         + (page.title ? `<p>${page.title}</p>` : '') + page.body + '</div></div>'
         + '<div><footer>'
-        + (index === 0 || last ? '' : '<button type="button">Back</button>')
+        + (page.back || !(index === 0 || last) ? '<button type="button">Back</button>' : '')
         + `<button type="button">${forward}</button>`
         + '</footer></div></div></div>'
         + '<section class="toasts"><h2 data-testid="toasts-title">0 notifications</h2></section>';
@@ -561,15 +569,61 @@ async def test_the_flag_sends_it_from_the_last_page_only(dom_page):
     assert await log(dom_page) == ["open", "next", "uncheck «r10»", "submit"]
 
 
-async def test_a_last_page_without_progress_is_not_sent(dom_page):
-    """Without its progress the forward button could be Next as well as Submit."""
+async def test_a_one_page_form_is_read_complete(dom_page):
+    result = await read(dom_page, posting(pages(FILLED, ONE_PAGE)))
+
+    assert result.complete is True
+    assert "progress" not in result.steps[0]
+    assert await log(dom_page) == ["open", "escape", "discard"]
+
+
+async def test_a_one_page_form_is_sent_from_its_only_page(dom_page):
+    rehearsal = await submit(dom_page, posting(pages(FILLED, ONE_PAGE)), {})
+    assert rehearsal.complete is True
+    assert rehearsal.submitted is False
+
+    result = await submit(
+        dom_page, posting(pages(FILLED, ONE_PAGE)), {}, confirm_submit=True
+    )
+
+    assert result.submitted is True
+    assert await log(dom_page) == ["open", "uncheck «r10»", "submit"]
+
+
+@pytest.mark.parametrize("confirm_submit", [False, True])
+async def test_a_last_page_without_progress_after_another_is_not_sent(
+    dom_page, confirm_submit
+):
+    """Reached from another page, its forward button could be Next as well as
+    Submit, and the rehearsal refuses it as the send would."""
     with pytest.raises(RuntimeError, match="Nothing was sent"):
         await submit(
             dom_page,
-            posting(pages(FILLED, dict(REVIEW, bare=True))),
+            posting(pages(FILLED, CONTACT, dict(REVIEW, bare=True, back=True))),
             {},
-            confirm_submit=True,
+            confirm_submit=confirm_submit,
         )
 
     assert "submit" not in await log(dom_page)
     assert (await log(dom_page))[-2:] == ["escape", "discard"]
+
+
+@pytest.mark.parametrize("confirm_submit", [False, True])
+async def test_a_first_page_without_progress_or_follow_box_is_not_sent(
+    dom_page, confirm_submit
+):
+    """A lone forward button is Next as long as nothing marks the last page."""
+    html = posting(pages(FILLED, dict(CONTACT, bare=True), REVIEW))
+    with pytest.raises(RuntimeError, match="Nothing was sent"):
+        await submit(dom_page, html, {}, confirm_submit=confirm_submit)
+
+    assert await log(dom_page) == ["open", "escape", "discard"]
+
+
+async def test_a_page_without_progress_or_follow_box_reads_incomplete(dom_page):
+    result = await read(
+        dom_page, posting(pages(FILLED, dict(CONTACT, bare=True), REVIEW))
+    )
+
+    assert result.complete is False
+    assert await log(dom_page) == ["open", "escape", "discard"]

@@ -47,6 +47,7 @@ from linkedin_mcp_server.linkedin.job_policy import (
     EASY_APPLY_DRAFT_LEFT,
     EASY_APPLY_NO_CONTROL,
     EASY_APPLY_SUBMIT_UNCONFIRMED,
+    EASY_APPLY_SUBMIT_UNKNOWN,
     EASY_APPLY_TYPEAHEAD_REFUSED,
     SAFETY_REDIRECT_PATH,
     SCROLL_DEADLINE_MAX,
@@ -297,7 +298,8 @@ _APPLY_POLL = 0.25
 # The one a button opens (measured on 2026-09-25) is a native `<dialog>` in the
 # document, told apart by the Easy Apply screen it holds. Its buttons carry
 # nothing to find them by, so they are found by place: the footer's last
-# button moves forward, and it submits on the page whose progress reads 100.
+# button moves forward, and it submits on the page whose progress reads 100, or
+# on a one-page form, which shows no progress (measured on 2026-10-04).
 # `docs/easy-apply-markup.md` holds the measurements.
 _SHADOW_ROOTS_JS = r"""
     const roots = [document];
@@ -532,7 +534,11 @@ EASY_APPLY_STEP_JS = (
     const bar = dialog.querySelector('[role="progressbar"][aria-valuenow]');
     const value = progress ? progress.getAttribute('value')
         : redesigned && bar ? bar.getAttribute('aria-valuenow') : null;
-    const forward = footer && [...footer.querySelectorAll('button')].pop();
+    const buttons = footer ? [...footer.querySelectorAll('button')] : [];
+    const forward = buttons[buttons.length - 1];
+    // The follow-the-company box, which only the last page carries.
+    const followBox = redesigned && [...form.querySelectorAll('input[type="checkbox"]')]
+        .some((el) => !el.closest('[componentkey^="easyApplyFieldFocus"]'));
     return {
         heading: text(heading).replace(starred, ''),
         progress: value === null ? null : Number(value),
@@ -542,6 +548,12 @@ EASY_APPLY_STEP_JS = (
         next: redesigned
             ? Boolean(forward) && value !== null && Number(value) < 100
             : Boolean(dialog.querySelector('[data-easy-apply-next-button]')),
+        // Whether the redesigned footer's last button is Submit for certain:
+        // on the page whose progress reads 100, or on a form of one page,
+        // which shows no progress, no Back, and the follow box.
+        submit: redesigned && Boolean(forward) && (value !== null
+            ? Number(value) === 100
+            : buttons.length === 1 && followBox),
         redesigned,
         signature: [text(heading), value, ...controls.map((el) => el.id || el.type)]
             .join('\n'),
@@ -793,6 +805,16 @@ def _step_identity(step: dict[str, Any]) -> tuple[str, Any]:
     because it types nothing; a walk that answers cannot.
     """
     return step["heading"], step["progress"]
+
+
+def _reaches_submit(step: dict[str, Any]) -> bool:
+    """Whether ``step``, a page with nothing after it, can be sent from.
+
+    The old dialog's Submit is found by its attribute when it is clicked. The
+    redesigned one has none, so its last page has to say for certain that the
+    footer's last button is Submit, or the form is not complete.
+    """
+    return not step.get("redesigned") or bool(step.get("submit"))
 
 
 def _step_errors(step: dict[str, Any]) -> list[dict[str, Any]]:
@@ -1254,7 +1276,7 @@ class JobPageReader:
         while True:
             steps.append(_public_step(step))
             if not step["next"]:
-                return True
+                return _reaches_submit(step)
             if len(steps) >= _EASY_APPLY_MAX_STEPS:
                 return False
             # The only control ever clicked in the dialog.
@@ -1367,6 +1389,10 @@ class JobPageReader:
         # is a stale answers file, and this is the last moment to say so: the
         # draft is still discardable and nothing has been sent.
         refuse_unused_easy_apply_answers(answers, used)
+        # Before anything else is touched, and whether or not this run sends:
+        # a rehearsal that passes where the send would refuse proves nothing.
+        if not _reaches_submit(step):
+            raise RuntimeError(EASY_APPLY_SUBMIT_UNKNOWN)
 
         follow = await self._set_follow_company(follow_company)
         if not confirm_submit:
@@ -1489,17 +1515,14 @@ class JobPageReader:
         on the strength of a click alone.
 
         The redesigned dialog's Submit carries nothing to find it by. It is the
-        footer's last button on the page whose progress reads 100, and on no
-        other page: anywhere else the same slot holds Next or Review.
+        footer's last button where ``step["submit"]`` says so, and on no other
+        page: anywhere else the same slot holds Next or Review.
         """
         page = self._session.page
         timeout = _EASY_APPLY_SET_TIMEOUT * 1000
         if step.get("redesigned"):
-            if step["progress"] != 100:
-                raise RuntimeError(
-                    "The Easy Apply dialog's last page does not read as complete, "
-                    "so its Submit could not be told from Next. Nothing was sent."
-                )
+            if not _reaches_submit(step):
+                raise RuntimeError(EASY_APPLY_SUBMIT_UNKNOWN)
             await self._dismiss_easy_apply_toasts()
             submit = page.locator(EASY_APPLY_REDESIGNED_DIALOG).locator("footer button")
             await submit.last.click(timeout=timeout)
