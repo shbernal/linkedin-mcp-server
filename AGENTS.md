@@ -31,7 +31,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   themselves; swapping either for a document query reaches nothing live. A
   `<button>` opens a native `<dialog>` in the document instead, whose buttons
   carry no attribute at all: the footer's last button moves forward, and it is
-  Submit only on the page whose progress bar reads 100. Its ids are React's
+  Submit only on the page whose progress bar reads 100, or on a one-page form,
+  which has no progress bar, no Back and the follow box. Its ids are React's
   `«r8»`, which JSON quoting corrupts for CSS, and a clicked radio or checkbox
   comes back under a new one. Both dialogs are measured in
   `docs/easy-apply-markup.md`.
