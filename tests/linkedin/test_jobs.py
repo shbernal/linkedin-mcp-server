@@ -3225,6 +3225,34 @@ class TestGetSavedJobs:
             result["section_errors"]["saved_jobs"]["error_type"] == "pagination_stopped"
         )
 
+    async def test_a_full_page_the_tab_count_covers_ends_quietly(self, mock_page):
+        """Ten jobs, no pager and a tab reading "Applied · 10" is the whole tab."""
+        reader = _reader(mock_page)
+        with (
+            self._paged(
+                reader,
+                mock_page,
+                [extracted("Saved · 0\nApplied · 10\nthe list")],
+                moves=["unpaged"],
+            ),
+            patch.object(
+                reader._pages,
+                "_extract_job_ids",
+                new_callable=AsyncMock,
+                return_value=[str(100 + index) for index in range(10)],
+            ),
+            patch.object(
+                reader._pages,
+                "_get_total_list_pages",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+        ):
+            result = await reader.get_saved_jobs(max_pages=3, stage="applied")
+
+        assert len(result["job_ids"]) == 10
+        assert "section_errors" not in result
+
     async def test_a_tab_that_runs_out_of_pages_ends_quietly(self, mock_page):
         """The pager offering no page three is the whole tab, read."""
         reader = _reader(mock_page)

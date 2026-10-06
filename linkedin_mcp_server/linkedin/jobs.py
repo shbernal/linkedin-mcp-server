@@ -47,6 +47,7 @@ from linkedin_mcp_server.linkedin.job_policy import (
     reconcile_search_references,
     tracker_page_unreachable_section_error,
     tracker_stage_url,
+    tracker_tab_count,
 )
 from linkedin_mcp_server.linkedin.link_metadata import Reference, dedupe_references
 from linkedin_mcp_server.linkedin.navigation import PageNavigator
@@ -616,6 +617,7 @@ class JobReader:
         section_errors: dict[str, dict[str, Any]] = {}
         total_pages: int | None = None
         total_pages_queried = False
+        tab_count: int | None = None
 
         for page_num in range(max_pages):
             if total_pages is not None and page_num >= total_pages:
@@ -635,8 +637,12 @@ class JobReader:
                     # A tab of one page renders no pager, so nothing being
                     # there is the end of a list that ended. It is only worth
                     # reporting after a full page, where a pager is what
-                    # LinkedIn shows and its absence is a page unread.
-                    if move == "exhausted" or (move == "unpaged" and not page_was_full):
+                    # LinkedIn shows and its absence is a page unread, unless
+                    # the tab's own count says that page was all of it.
+                    if move == "exhausted" or (
+                        move == "unpaged"
+                        and (not page_was_full or tab_count == len(all_job_ids))
+                    ):
                         logger.debug(
                             "The job tracker's %s tab ends on page %d",
                             stage,
@@ -705,6 +711,11 @@ class JobReader:
                     # Nothing to read, and the page is the one that was asked
                     # for: an account with nothing saved.
                     break
+
+                if page_num == 0:
+                    tab_count = tracker_tab_count(
+                        extracted.text, self._tracker_text.tab_labels[stage]
+                    )
 
                 if not total_pages_queried:
                     total_pages_queried = True

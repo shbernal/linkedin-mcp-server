@@ -123,6 +123,12 @@ def tracker_page_unreachable_section_error(page_number: int) -> dict[str, str]:
     }
 
 
+def tracker_tab_count(text: str, label: str) -> int | None:
+    """The job count the tracker's tab strip shows beside ``label``, if any."""
+    match = re.search(rf"^{re.escape(label)} · (\d+)$", text, re.MULTILINE)
+    return int(match.group(1)) if match else None
+
+
 def dropped_offset_section_error(offset: int, landed: str) -> dict[str, str]:
     """The ``section_errors`` entry for a list that cannot be paged further.
 
