@@ -12,6 +12,7 @@ from linkedin_mcp_server.linkedin.job_policy import (
     reconcile_search_references,
     route,
     same_job_search,
+    tracker_tab_count,
 )
 from linkedin_mcp_server.linkedin.link_metadata import (
     Reference,
@@ -277,3 +278,17 @@ class TestParsePostingTitle:
             "",
         ]:
             assert parse_posting_title(title) is None, title
+
+
+class TestTrackerTabCount:
+    def test_reads_the_count_beside_its_own_tab(self):
+        text = "Saved · 0\nIn Progress · 1\nApplied · 10\nArchived"
+
+        assert tracker_tab_count(text, "Applied") == 10
+        assert tracker_tab_count(text, "In Progress") == 1
+
+    def test_a_tab_with_no_count_has_none(self):
+        assert tracker_tab_count("Saved · 0\nArchived", "Archived") is None
+
+    def test_a_card_line_is_not_a_tab(self):
+        assert tracker_tab_count("Applied 1d ago", "Applied") is None

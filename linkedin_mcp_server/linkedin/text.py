@@ -106,10 +106,23 @@ class JobTrackerTextTable:
     # same without Unsave. Measured on 2026-09-21.
     unsave_item: str
     archive_item: str
+    # The tab strip's label for each stage, which LinkedIn follows with the
+    # tab's job count ("Applied · 10"). The archived tab shows no count.
+    # Measured on 2026-10-06.
+    tab_labels: dict[str, str]
 
 
 _JOB_TRACKER_TEXT: dict[str, JobTrackerTextTable] = {
-    "en-US": JobTrackerTextTable(unsave_item="Unsave", archive_item="Archive"),
+    "en-US": JobTrackerTextTable(
+        unsave_item="Unsave",
+        archive_item="Archive",
+        tab_labels={
+            "saved": "Saved",
+            "in_progress": "In Progress",
+            "applied": "Applied",
+            "archived": "Archived",
+        },
+    ),
 }
 
 # Same locale contract as `DETAIL_CAPTURE_EN_US`.
