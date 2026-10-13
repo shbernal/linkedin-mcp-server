@@ -140,6 +140,27 @@ QUESTIONS: dict[str, Any] = {
         'aria-checked="false"><div><div><input id="«q2»" tabindex="-1" type="radio" '
         'name="english" class="covered"><label for="«q2»"></label></div>'
         "<div><p>Bilingual</p></div></div></div>"
+        "</div></fieldset></div>"
+        # As measured on 2026-10-14: no wrapper, and every option's input is
+        # labelled with the question; its text sits beside it.
+        '<div componentkey="easyApplyFieldFocus_ea_validation_p4_0_5">'
+        "<p>What is your English Proficiency?*</p>"
+        '<fieldset aria-describedby="error-message-_r_v_" role="radiogroup"><div>'
+        "<div><div><div>"
+        '<input id="_r_10_" aria-label="What is your English Proficiency?" '
+        'tabindex="0" type="radio" name="radio-group-_r_v_">'
+        '<label for="_r_10_"></label></div>'
+        "<div><p>I don't speak English</p></div></div></div>"
+        "<div><div><div>"
+        '<input id="_r_11_" aria-label="What is your English Proficiency?" '
+        'tabindex="0" type="radio" name="radio-group-_r_v_">'
+        '<label for="_r_11_"></label></div>'
+        "<div><p>C2: I understand almost everything.</p></div></div></div>"
+        "<div><div><div>"
+        '<input id="_r_12_" aria-label="What is your English Proficiency?" '
+        'tabindex="0" type="radio" name="radio-group-_r_v_">'
+        '<label for="_r_12_"></label></div>'
+        "<div><p>I am a native speaker</p></div></div></div>"
         "</div></fieldset></div></div>"
     ),
 }
@@ -241,6 +262,11 @@ const render = () => {
             input.id = input.id.replace('»', '+»');
             if (label) label.htmlFor = input.id;
         });
+    }
+    // A radio with no wrapper takes the click itself.
+    for (const input of dialog.querySelectorAll('input[type="radio"]')) {
+        if (input.closest('[role="radio"]')) continue;
+        input.addEventListener('click', () => window.log.push(`check ${input.id}`));
     }
     const upload = dialog.querySelector('#upload');
     if (upload) upload.addEventListener('click', () => {
@@ -494,6 +520,17 @@ async def test_every_page_is_read_and_the_draft_discarded(dom_page):
             "options": ["Native speaker", "Bilingual"],
             "selected": [],
         },
+        {
+            "label": "What is your English Proficiency?",
+            "type": "radio",
+            "required": True,
+            "options": [
+                "I don't speak English",
+                "C2: I understand almost everything.",
+                "I am a native speaker",
+            ],
+            "selected": [],
+        },
     ]
     # The follow checkbox is not a question.
     assert result.steps[3]["fields"] == []
@@ -553,6 +590,7 @@ async def test_a_rehearsal_answers_every_page_and_sends_nothing(dom_page, tmp_pa
             "Spoken Languages": "Spanish, French",
             "Personal data consent": True,
             "What is your level in English?": "Bilingual",
+            "What is your English Proficiency?": "C2: I understand almost everything.",
         },
     )
 
@@ -566,6 +604,9 @@ async def test_a_rehearsal_answers_every_page_and_sends_nothing(dom_page, tmp_pa
         "I consent to the processing of my data."
     ]
     assert result.steps[2]["fields"][3]["selected"] == ["Bilingual"]
+    assert result.steps[2]["fields"][4]["selected"] == [
+        "C2: I understand almost everything."
+    ]
     # The toast over the footer is closed before Next is clicked.
     assert await log(dom_page) == [
         "open",
@@ -575,6 +616,7 @@ async def test_a_rehearsal_answers_every_page_and_sends_nothing(dom_page, tmp_pa
         "next",
         "check «r9»",
         "check «q2»",
+        "check _r_11_",
         "next",
         "uncheck «r10»",
         "escape",
