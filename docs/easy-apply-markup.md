@@ -198,6 +198,11 @@ The label comes in four shapes:
 - For a radio or checkbox, a `div[role="radio"]` or `div[role="checkbox"]`
   around the input, carrying `aria-label` and `aria-checked`. The input's own
   `<label for>` is empty.
+- For a radio with no such wrapper (Brevo's "What is your English
+  Proficiency?", 2026-10-14, ids in the `_r_10_` form): every option's input
+  carries the question as its `aria-label`, has `tabindex="0"` and an empty
+  `<label for>`, and the option's text is a `<p>` in a sibling `<div>` of the
+  input's parent. The option text is only visible there.
 
 Whether a question is required shows as `required` on text inputs, selects and
 textareas. A required checkbox carries no attribute at all: the only sign is
