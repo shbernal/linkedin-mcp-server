@@ -410,8 +410,9 @@ EASY_APPLY_CLOSED_JS = "() => !(" + EASY_APPLY_OPEN_JS + ")()"
 # option is named by its wrapper's text, and by the wrapper's `aria-label` only
 # when it has none: a question's options repeat the question there, and a
 # resume's radio holds nothing but its file name there. An option with no
-# wrapper repeats the question in its own `aria-label`, so the text beside it,
-# up to the next option, names it. A
+# wrapper is named by its own `aria-label`, a resume's file name, unless every
+# option repeats the question there; then the text beside it, up to the next
+# option, names it. A
 # question's block is the largest ancestor holding no other question's control,
 # below the page's own column, so the page title is never taken for one. Its
 # resume upload has no file input until the button is clicked, so the button
@@ -449,6 +450,11 @@ EASY_APPLY_STEP_JS = (
         }
         return node;
     };
+    const ariaLabel = (el) => (el.getAttribute('aria-label') || '').trim();
+    // An aria-label another option of the group wears too is the question's.
+    const sharedLabel = (el, group) => Boolean(group) && group.some(
+        (other) => other !== el && ariaLabel(other) === ariaLabel(el)
+    );
     const labelOf = (el, group) =>
         (el.id && text(form.querySelector(`label[for="${CSS.escape(el.id)}"]`)))
         || text(el.closest('label'))
@@ -456,8 +462,9 @@ EASY_APPLY_STEP_JS = (
             text(wrapperOf(el)).slice(0, 300)
             || (wrapperOf(el).getAttribute('aria-label') || '').trim()
         ))
+        || (!sharedLabel(el, group) && ariaLabel(el))
         || text(ownBlock(el, group)).slice(0, 300)
-        || (el.getAttribute('aria-label') || '').trim()
+        || ariaLabel(el)
         || '';
     const isChoice = (el) => el.type === 'radio' || el.type === 'checkbox';
     const question = (el) => !redesigned || !(
@@ -1796,8 +1803,8 @@ class JobPageReader:
 
         A radio or checkbox in a `role="radio"` or `role="checkbox"` wrapper
         has `tabindex="-1"` on the input, and `check` timed out on it when
-        measured while a click on the wrapper took. One with no wrapper takes
-        the click itself. The click re-mounts the
+        measured while a click on the wrapper took. One with no wrapper is not
+        visible at all, and takes the click on its `<label for>`. The click re-mounts the
         input under React's next id, so an id read before it names nothing
         after it, and one read before an earlier click may name nothing
         already. The option is therefore found by its label in a fresh read,
@@ -1817,11 +1824,11 @@ class JobPageReader:
         now = await current()
         if (option in now["selected"]) == checked:
             return
-        control = page.locator(
-            easy_apply_control_selector(now["ids"][now["options"].index(option)])
-        ).first
-        wrapper = control.locator(_CHOICE_WRAPPER)
-        target = wrapper if await wrapper.count() else control
+        current_id = now["ids"][now["options"].index(option)]
+        control = page.locator(easy_apply_control_selector(current_id)).first
+        target = control.locator(_CHOICE_WRAPPER)
+        if not await target.count():
+            target = page.locator(easy_apply_label_selector(current_id)).first
         await target.click(timeout=_EASY_APPLY_SET_TIMEOUT * 1000)
         deadline = self._session.monotonic() + _EASY_APPLY_SET_TIMEOUT
         while (option in (await current())["selected"]) != checked:
