@@ -409,7 +409,9 @@ EASY_APPLY_CLOSED_JS = "() => !(" + EASY_APPLY_OPEN_JS + ")()"
 # the `*` ending its title, and leaves its errors as loose `<p>` after it. An
 # option is named by its wrapper's text, and by the wrapper's `aria-label` only
 # when it has none: a question's options repeat the question there, and a
-# resume's radio holds nothing but its file name there. A
+# resume's radio holds nothing but its file name there. An option with no
+# wrapper repeats the question in its own `aria-label`, so the text beside it,
+# up to the next option, names it. A
 # question's block is the largest ancestor holding no other question's control,
 # below the page's own column, so the page title is never taken for one. Its
 # resume upload has no file input until the button is clicked, so the button
@@ -436,14 +438,26 @@ EASY_APPLY_STEP_JS = (
     };
     const byId = (id) => form.querySelector(`[id="${CSS.escape(id)}"]`);
     const wrapperOf = (el) => el.closest('[role="radio"], [role="checkbox"]');
-    const labelOf = (el) =>
+    // An option's own block: its largest ancestor holding no other option of
+    // its group. Only an option among others has one.
+    const ownBlock = (el, group) => {
+        if (!group || group.length < 2) return null;
+        let node = el;
+        while (node.parentElement
+            && !group.some((other) => other !== el && node.parentElement.contains(other))) {
+            node = node.parentElement;
+        }
+        return node;
+    };
+    const labelOf = (el, group) =>
         (el.id && text(form.querySelector(`label[for="${CSS.escape(el.id)}"]`)))
         || text(el.closest('label'))
-        || (el.getAttribute('aria-label') || '').trim()
         || (wrapperOf(el) && (
             text(wrapperOf(el)).slice(0, 300)
             || (wrapperOf(el).getAttribute('aria-label') || '').trim()
         ))
+        || text(ownBlock(el, group)).slice(0, 300)
+        || (el.getAttribute('aria-label') || '').trim()
         || '';
     const isChoice = (el) => el.type === 'radio' || el.type === 'checkbox';
     const question = (el) => !redesigned || !(
@@ -533,10 +547,11 @@ EASY_APPLY_STEP_JS = (
             const picked = first.options[first.selectedIndex];
             if (picked) field.value = picked.text.trim();
         } else if (isChoice(first)) {
-            const options = group.map(labelOf);
+            const options = group.map((el) => labelOf(el, group));
             field.options = options.slice(0, maxOptions);
             if (options.length > maxOptions) field.options_total = options.length;
-            field.selected = group.filter((el) => el.checked).map(labelOf);
+            field.selected = group.filter((el) => el.checked)
+                .map((el) => labelOf(el, group));
         } else if (first.type !== 'file' && first.value) {
             field.value = first.value;
         }
@@ -1779,9 +1794,10 @@ class JobPageReader:
         """Leave one option of the redesigned dialog's ``field`` as ``checked``
         asks, the option ``control_id`` stood for when the step was read.
 
-        Each radio or checkbox sits in a `role="radio"` or `role="checkbox"`
-        wrapper with `tabindex="-1"` on the input, and `check` timed out on it
-        when measured while a click on the wrapper took. The click re-mounts the
+        A radio or checkbox in a `role="radio"` or `role="checkbox"` wrapper
+        has `tabindex="-1"` on the input, and `check` timed out on it when
+        measured while a click on the wrapper took. One with no wrapper takes
+        the click itself. The click re-mounts the
         input under React's next id, so an id read before it names nothing
         after it, and one read before an earlier click may name nothing
         already. The option is therefore found by its label in a fresh read,
@@ -1804,9 +1820,9 @@ class JobPageReader:
         control = page.locator(
             easy_apply_control_selector(now["ids"][now["options"].index(option)])
         ).first
-        await control.locator(_CHOICE_WRAPPER).click(
-            timeout=_EASY_APPLY_SET_TIMEOUT * 1000
-        )
+        wrapper = control.locator(_CHOICE_WRAPPER)
+        target = wrapper if await wrapper.count() else control
+        await target.click(timeout=_EASY_APPLY_SET_TIMEOUT * 1000)
         deadline = self._session.monotonic() + _EASY_APPLY_SET_TIMEOUT
         while (option in (await current())["selected"]) != checked:
             if self._session.monotonic() >= deadline:
