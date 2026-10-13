@@ -80,7 +80,9 @@ CONTACT: dict[str, Any] = {
 }
 
 # As measured: the title sits in a sibling before the fieldset's parent, and
-# that parent also holds the next question.
+# that parent also holds the next question. The first card is in the shape of
+# 2026-09-25, the second in that of 2026-10-14: no role wrapper, the file name
+# on the input and on a plain div around it.
 RESUME: dict[str, Any] = {
     "title": "",
     "required": [],
@@ -93,6 +95,10 @@ RESUME: dict[str, Any] = {
         'aria-checked="true"><div aria-label="old.pdf">'
         '<input id="«r5»" type="radio" checked name="resume" class="covered">'
         '<label for="«r5»"></label></div></div></div>'
+        '<div><div><div role="button" tabindex="0"><p>PDF</p><p><span>older.pdf</span>'
+        '</p><p>10/9/2026</p></div></div><div><div aria-label="older.pdf">'
+        '<input id="_r_g_" aria-label="older.pdf" tabindex="0" type="radio" '
+        'name="resume" class="bare"><label for="_r_g_"></label></div></div></div>'
         "</div></div></fieldset>"
         '<div><button type="button" id="upload">Upload resume</button></div>'
         '<div componentkey="easyApplyFieldFocus_ea_validation_p1_0_7">'
@@ -148,17 +154,17 @@ QUESTIONS: dict[str, Any] = {
         '<fieldset aria-describedby="error-message-_r_v_" role="radiogroup"><div>'
         "<div><div><div>"
         '<input id="_r_10_" aria-label="What is your English Proficiency?" '
-        'tabindex="0" type="radio" name="radio-group-_r_v_">'
+        'tabindex="0" type="radio" name="radio-group-_r_v_" class="bare">'
         '<label for="_r_10_"></label></div>'
         "<div><p>I don't speak English</p></div></div></div>"
         "<div><div><div>"
         '<input id="_r_11_" aria-label="What is your English Proficiency?" '
-        'tabindex="0" type="radio" name="radio-group-_r_v_">'
+        'tabindex="0" type="radio" name="radio-group-_r_v_" class="bare">'
         '<label for="_r_11_"></label></div>'
         "<div><p>C2: I understand almost everything.</p></div></div></div>"
         "<div><div><div>"
         '<input id="_r_12_" aria-label="What is your English Proficiency?" '
-        'tabindex="0" type="radio" name="radio-group-_r_v_">'
+        'tabindex="0" type="radio" name="radio-group-_r_v_" class="bare">'
         '<label for="_r_12_"></label></div>'
         "<div><p>I am a native speaker</p></div></div></div>"
         "</div></fieldset></div></div>"
@@ -215,6 +221,10 @@ window.log = [];
 const style = document.createElement('style');
 // The measured inputs took no click of their own: only their wrapper did.
 style.textContent = '.covered { pointer-events: none; }'
+    // Measured on 2026-10-14: an input with no role wrapper has no box at all,
+    // and its label is what shows.
+    + ' .bare { position: absolute; width: 0; height: 0; opacity: 0; pointer-events: none; }'
+    + ' .bare + label { display: block; width: 24px; height: 20px; }'
     + ' section.toasts:has([role="alert"]) { position: fixed; left: 0; right: 0; bottom: 0; height: 200px;'
     + ' background: white; z-index: 10; }';
 document.head.appendChild(style);
@@ -263,7 +273,7 @@ const render = () => {
             if (label) label.htmlFor = input.id;
         });
     }
-    // A radio with no wrapper takes the click itself.
+    // A radio with no wrapper takes the click through its label.
     for (const input of dialog.querySelectorAll('input[type="radio"]')) {
         if (input.closest('[role="radio"]')) continue;
         input.addEventListener('click', () => window.log.push(`check ${input.id}`));
@@ -279,7 +289,7 @@ const render = () => {
             const name = input.files[0].name;
             for (const other of dialog.querySelectorAll('[name="resume"]')) {
                 other.checked = false;
-                other.closest('[role="radio"]').setAttribute('aria-checked', 'false');
+                other.closest('[role="radio"]')?.setAttribute('aria-checked', 'false');
             }
             dialog.querySelector('#easyApplyUploadedResumeRef').innerHTML =
                 `<div role="radio" aria-label="${name}" aria-checked="true">`
@@ -485,7 +495,7 @@ async def test_every_page_is_read_and_the_draft_discarded(dom_page):
             "label": "Resume",
             "type": "radio",
             "required": True,
-            "options": ["old.pdf"],
+            "options": ["old.pdf", "older.pdf"],
             "selected": ["old.pdf"],
         },
         {"label": "Upload resume", "type": "file", "required": False},

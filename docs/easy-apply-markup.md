@@ -202,7 +202,10 @@ The label comes in four shapes:
   Proficiency?", 2026-10-14, ids in the `_r_10_` form): every option's input
   carries the question as its `aria-label`, has `tabindex="0"` and an empty
   `<label for>`, and the option's text is a `<p>` in a sibling `<div>` of the
-  input's parent. The option text is only visible there.
+  input's parent. The input has no box (0x0, `opacity: 0`,
+  `pointer-events: none`); the 24x20 label is what shows and takes the click.
+  The resume radios on the same form had the same shape, with the file name as
+  the input's `aria-label` and on a plain `<div>` around it.
 
 Whether a question is required shows as `required` on text inputs, selects and
 textareas. A required checkbox carries no attribute at all: the only sign is
