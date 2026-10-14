@@ -20,8 +20,10 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
+import asyncio
 import json
 
+import anyio
 import pytest
 from patchright.async_api import async_playwright
 
@@ -554,6 +556,21 @@ async def test_every_page_is_read_and_the_draft_discarded(dom_page):
     ]
 
 
+async def test_a_long_choice_list_is_cut_by_its_own_names(dom_page, monkeypatch):
+    # The proficiency radios have no wrapper and share their aria-label, so
+    # each is named from the text beside it, which the cut has to keep.
+    monkeypatch.setattr(job_pages, "_EASY_APPLY_MAX_OPTIONS", 2)
+
+    result = await read(dom_page, posting(pages(FILLED, QUESTIONS, REVIEW)))
+
+    proficiency = result.steps[0]["fields"][-1]
+    assert proficiency["options"] == [
+        "I don't speak English",
+        "C2: I understand almost everything.",
+    ]
+    assert proficiency["options_total"] == 3
+
+
 async def test_a_page_needing_input_ends_the_read_with_its_error(dom_page):
     result = await read(dom_page, posting(pages(EMPTY, CONTACT, RESUME, REVIEW)))
 
@@ -583,6 +600,56 @@ async def test_a_dialog_that_will_not_close_is_reported(dom_page):
     assert result.discarded is False
     assert "discard" not in await log(dom_page)
     assert "save" not in await log(dom_page)
+
+
+async def reading(page, html: str) -> asyncio.Task[EasyApplyFormRead]:
+    """Start reading the form of ``html`` once it is served, as a task."""
+    reader = await reader_for(page, html)
+
+    async def go() -> EasyApplyFormRead:
+        with patch.object(
+            reader._navigator, "_navigate_to_page", new_callable=AsyncMock
+        ):
+            return await reader.read_easy_apply_form(JOB_URL, "123", JOB_APPLY_EN_US)
+
+    return asyncio.ensure_future(go())
+
+
+async def dialog_open(page) -> bool:
+    return await page.evaluate(job_pages.EASY_APPLY_OPEN_JS)
+
+
+async def test_a_read_cancelled_while_the_dialog_opens_discards_it(dom_page):
+    # The dialog opens 100ms after the click, so this cancel lands before it.
+    task = await reading(dom_page, posting(pages(FILLED, CONTACT, REVIEW)))
+    async with asyncio.timeout(5):
+        while "open" not in (await log(dom_page) or []):
+            await asyncio.sleep(0.02)
+    assert not await dialog_open(dom_page)
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert not await dialog_open(dom_page)
+    assert await log(dom_page) == ["open", "escape", "discard"]
+
+
+async def test_a_read_past_the_tool_deadline_still_discards_the_draft(dom_page):
+    # A tool timeout is an AnyIO scope, which cancels the task again on every
+    # pass of the loop: an unshielded discard ends at its first await.
+    reader = await reader_for(
+        dom_page, posting(pages(FILLED, CONTACT, RESUME, QUESTIONS, REVIEW))
+    )
+
+    with patch.object(reader._navigator, "_navigate_to_page", new_callable=AsyncMock):
+        with pytest.raises(TimeoutError):
+            with anyio.fail_after(0.5):
+                await reader.read_easy_apply_form(JOB_URL, "123", JOB_APPLY_EN_US)
+
+    events = await log(dom_page)
+    assert "open" in events
+    assert events[-2:] == ["escape", "discard"]
+    assert not await dialog_open(dom_page)
 
 
 async def test_a_rehearsal_answers_every_page_and_sends_nothing(dom_page, tmp_path):
