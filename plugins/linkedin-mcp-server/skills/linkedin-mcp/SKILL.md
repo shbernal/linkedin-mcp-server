@@ -27,6 +27,9 @@ work, health checks, or background maintenance.
   next application. Use it only when the user authorizes the posting and the
   answers. Only `confirm_submit` sends the application, and a sent one cannot be
   taken back.
+- `archive_conversation` is a write action too: it moves a thread out of the
+  user's inbox. Use it only when the user explicitly asks to archive that
+  thread.
 - Do not retry a failed write action unless the result proves it was not sent.
 
 ## Browser and authentication
@@ -55,8 +58,9 @@ instances, clear profiles, or replace the user's browser session.
 - Content: `get_feed` and `search_posts`.
 - Messages: `get_inbox`, `get_conversation`, and `search_conversations`.
 - Writes: `send_message`, `reply_to_conversation` (answer an existing thread,
-  InMail included), `connect_with_person`, `unsave_job`, `archive_job` and
-  `submit_easy_apply`, subject to the explicit authorization rules above.
+  InMail included), `connect_with_person`, `archive_conversation`,
+  `unsave_job`, `archive_job` and `submit_easy_apply`, subject to the explicit
+  authorization rules above.
 - Cleanup: use `close_session` only when the user asks to end the managed
   browser session or when the current LinkedIn task is finished and no follow-up
   call is expected.

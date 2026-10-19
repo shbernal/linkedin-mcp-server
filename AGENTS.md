@@ -168,6 +168,7 @@ Optional additional keys:
 - `apply: {type}` (get_job_details) — `type` is `applied` or `closed`, read from the posting's text above its description without clicking; absent for an open posting and for one whose description heading was not captured
 - `form: {steps: [{heading?, progress?, fields: [{label, type, required, options?, options_total?, selected?, value?, max_length?, error?}]}], complete}` (get_easy_apply_form and submit_easy_apply, which return `apply: {type}` beside it and no `sections`) — present for Easy Apply postings only; `complete` is false when steps after the last one were not read, and `error` marks the fields LinkedIn refused on that step. submit_easy_apply adds `submitted`, the form as it left it, and `follow` and `confirmation` where they apply — `confirmation` is LinkedIn's own modal or, where none renders, the posting's applied line, and is absent when neither appeared, which says nothing about whether the application was sent
 - `reply_to_conversation` returns no `sections`: `{url, status, message, recipient_selected, sent, retry_safe, thread_id, participant}`, the `send_message` fields plus the thread and the name its title shows (null when unread)
+- `archive_conversation` returns no `sections`: `{url, thread_id, participant, status}`, with `status` `archived` or `already_archived`; anything else raises
 
 ## Tests
 
