@@ -38,6 +38,7 @@ PUBLIC_SIGNATURES = {
     "get_conversation": "(self, linkedin_username: 'str | None' = None, thread_id: 'str | None' = None, index: 'int' = 0) -> 'dict[str, Any]'",
     "get_inbox": "(self, limit: 'int' = 20) -> 'dict[str, Any]'",
     "get_job_apply_url": "(self, job_id: 'str') -> 'dict[str, Any]'",
+    "get_easy_apply_form": "(self, job_id: 'str') -> 'dict[str, Any]'",
     "get_my_profile": "(self, sections: 'set[str] | None' = None, callbacks: 'ProgressCallback | None' = None, max_scrolls: 'int | None' = None) -> 'dict[str, Any]'",
     "get_page_text": "(self) -> 'str'",
     "get_saved_jobs": "(self, max_pages: 'int' = 3, stage: 'JobsTrackerStage' = 'saved') -> 'dict[str, Any]'",
@@ -51,6 +52,7 @@ PUBLIC_SIGNATURES = {
     "search_conversations": "(self, keywords: 'str', limit: 'int' = 20) -> 'dict[str, Any]'",
     "search_jobs": "(self, keywords: 'str', location: 'str | None' = None, max_pages: 'int' = 3, date_posted: 'str | None' = None, job_type: 'str | None' = None, experience_level: 'str | None' = None, work_type: 'str | None' = None, easy_apply: 'bool' = False, sort_by: 'str | None' = None, tool_timeout: 'float' = 180.0) -> 'dict[str, Any]'",
     "search_people": "(self, keywords: 'str', location: 'str | None' = None, network: 'list[str] | None' = None, current_company: 'str | None' = None) -> 'dict[str, Any]'",
+    "submit_easy_apply": "(self, job_id: 'str', answers: 'Mapping[str, EasyApplyAnswer] | None' = None, follow_company: 'bool' = False, confirm_submit: 'bool' = False) -> 'dict[str, Any]'",
     "search_posts": "(self, keywords: 'str', date_posted: 'str | None' = None, max_pages: 'int' = 3) -> 'dict[str, Any]'",
     "send_message": "(self, linkedin_username: 'str', message: 'str', *, confirm_send: 'bool', profile_urn: 'str | None' = None) -> 'dict[str, Any]'",
 }
@@ -64,6 +66,7 @@ DELEGATES = {
     "get_conversation": ("_conversations", "get_conversation"),
     "get_inbox": ("_conversations", "get_inbox"),
     "get_job_apply_url": ("_jobs", "get_job_apply_url"),
+    "get_easy_apply_form": ("_jobs", "get_easy_apply_form"),
     "get_my_profile": ("_person", "get_my_profile"),
     "get_page_text": ("_content", "get_page_text"),
     "get_saved_jobs": ("_jobs", "get_saved_jobs"),
@@ -78,6 +81,7 @@ DELEGATES = {
     "search_jobs": ("_jobs", "search_jobs"),
     "search_people": ("_person", "search_people"),
     "search_posts": ("_posts", "search_posts"),
+    "submit_easy_apply": ("_jobs", "submit_easy_apply"),
     "send_message": ("_message_sender", "send_message"),
 }
 
@@ -90,6 +94,7 @@ DELEGATE_CALLS = {
     "get_conversation": "self._conversations.get_conversation(linkedin_username, thread_id, index)",
     "get_inbox": "self._conversations.get_inbox(limit)",
     "get_job_apply_url": "self._jobs.get_job_apply_url(job_id)",
+    "get_easy_apply_form": "self._jobs.get_easy_apply_form(job_id)",
     "get_my_profile": "self._person.get_my_profile(sections, callbacks, max_scrolls)",
     "get_page_text": "self._content.get_page_text()",
     "get_saved_jobs": "self._jobs.get_saved_jobs(max_pages, stage)",
@@ -104,6 +109,7 @@ DELEGATE_CALLS = {
     "search_jobs": "self._jobs.search_jobs(keywords, location, max_pages, date_posted, job_type, experience_level, work_type, easy_apply, sort_by, tool_timeout)",
     "search_people": "self._person.search_people(keywords, location=location, network=network, current_company=current_company)",
     "search_posts": "self._posts.search_posts(keywords, date_posted=date_posted, max_pages=max_pages)",
+    "submit_easy_apply": "self._jobs.submit_easy_apply(job_id, answers, follow_company, confirm_submit)",
     "send_message": "self._message_sender.send_message(linkedin_username, message, confirm_send=confirm_send, profile_urn=profile_urn)",
 }
 
