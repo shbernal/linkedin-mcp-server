@@ -24,6 +24,7 @@ from linkedin_mcp_server.common_utils import (
 )
 
 from linkedin_mcp_server.browser_downgrade import refuse_a_downgrade
+from linkedin_mcp_server.debug_utils import hold_message_send
 from linkedin_mcp_server.exceptions import (
     BrowserDowngradeError,
     BrowserShutdownUnconfirmedError,
@@ -560,6 +561,8 @@ class BrowserManager:
             # gone, and the first navigation is the one that most often
             # arrives throttled.
             watch_responses(self._page)
+
+            await hold_message_send(self._page, logger)
 
             logger.info("Browser context and page ready")
 
