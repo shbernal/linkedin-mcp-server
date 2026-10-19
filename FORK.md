@@ -30,8 +30,10 @@ this list.
 
 - `main` mirrors upstream `main`. Nothing is committed on it.
 - `jobsearch` is `main` plus a merge of each branch in
-  [`fork/branches.txt`](fork/branches.txt), in that order. Every rebuild resets
-  it to `main` and force-pushes it, so never base work on it.
+  [`fork/branches.txt`](fork/branches.txt), in that order. A branch that a
+  later one contains, such as a lower layer of a stack, can come in through
+  that later merge. Every rebuild resets it to `main` and force-pushes it, so
+  never base work on it.
 - Topic branches hold one feature or fix each. They are force-pushed when
   rebased onto a newer `main`.
 - `local/` branches hold changes that never go upstream, this file among them.

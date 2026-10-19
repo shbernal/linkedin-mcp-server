@@ -151,6 +151,13 @@ def notes(tag: str, entries: list[Entry]) -> str:
     ]
     for entry in entries:
         tip = tips.get(entry.branch)
+        if tip is None:
+            # A branch a later one contains can come in through that later merge.
+            commit = resolve(entry.branch)
+            if commit is not None and git_ok(
+                "merge-base", "--is-ancestor", commit, tag
+            ):
+                tip = commit
         tip_cell = f"`{tip[:8]}`" if tip else "not merged"
         if entry.pr is None:
             pr_cell = "-"
