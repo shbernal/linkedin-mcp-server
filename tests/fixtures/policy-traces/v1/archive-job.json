@@ -1,0 +1,180 @@
+{
+  "call": {
+    "arguments": {
+      "job_id": "123",
+      "stage": "applied"
+    },
+    "method": "archive_job"
+  },
+  "events": [
+    {
+      "call": "archive_job",
+      "callback_id": "callback-1",
+      "event": "framenavigated",
+      "kind": "listener.add"
+    },
+    {
+      "call": "archive_job",
+      "extra": {
+        "target_url": "https://www.linkedin.com/jobs-tracker/?stage=applied",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-before-goto"
+    },
+    {
+      "call": "archive_job",
+      "kind": "navigate",
+      "landed_url": "https://www.linkedin.com/jobs-tracker/?stage=applied",
+      "requested_url": "https://www.linkedin.com/jobs-tracker/?stage=applied",
+      "timeout_ms": 30000,
+      "wait_until": "domcontentloaded"
+    },
+    {
+      "call": "archive_job",
+      "description": "goto https://www.linkedin.com/jobs-tracker/?stage=applied",
+      "kind": "boundary.stabilize",
+      "result": null
+    },
+    {
+      "call": "archive_job",
+      "extra": {
+        "target_url": "https://www.linkedin.com/jobs-tracker/?stage=applied",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-after-goto"
+    },
+    {
+      "call": "archive_job",
+      "kind": "boundary.auth_quick",
+      "result": null
+    },
+    {
+      "call": "archive_job",
+      "callback_id": "callback-1",
+      "event": "framenavigated",
+      "kind": "listener.remove"
+    },
+    {
+      "call": "archive_job",
+      "kind": "boundary.rate_limit"
+    },
+    {
+      "call": "archive_job",
+      "dismissed": false,
+      "kind": "boundary.modal"
+    },
+    {
+      "call": "archive_job",
+      "kind": "wait_for_selector",
+      "operation": "job_tracker_cards",
+      "selector": "main :is(a[href*=\"/jobs/view/\"], [componentkey^=\"job-card-component-ref-\"])",
+      "state": "attached",
+      "timeout_ms": 10000
+    },
+    {
+      "arg": {
+        "jobId": "123",
+        "mark": "data-mcp-tracker-menu",
+        "selector": "a[href*=\"/jobs/view/\"], [componentkey^=\"job-card-component-ref-\"]"
+      },
+      "call": "archive_job",
+      "kind": "evaluate",
+      "operation": "job_tracker_card",
+      "program_digest": "1f723d264093"
+    },
+    {
+      "call": "archive_job",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 2.0
+    },
+    {
+      "call": "archive_job",
+      "callback_id": "callback-2",
+      "event": "framenavigated",
+      "kind": "listener.add"
+    },
+    {
+      "call": "archive_job",
+      "extra": {
+        "target_url": "https://www.linkedin.com/jobs-tracker/?stage=archived",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-before-goto"
+    },
+    {
+      "call": "archive_job",
+      "kind": "navigate",
+      "landed_url": "https://www.linkedin.com/jobs-tracker/?stage=archived",
+      "requested_url": "https://www.linkedin.com/jobs-tracker/?stage=archived",
+      "timeout_ms": 30000,
+      "wait_until": "domcontentloaded"
+    },
+    {
+      "call": "archive_job",
+      "description": "goto https://www.linkedin.com/jobs-tracker/?stage=archived",
+      "kind": "boundary.stabilize",
+      "result": null
+    },
+    {
+      "call": "archive_job",
+      "extra": {
+        "target_url": "https://www.linkedin.com/jobs-tracker/?stage=archived",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-after-goto"
+    },
+    {
+      "call": "archive_job",
+      "kind": "boundary.auth_quick",
+      "result": null
+    },
+    {
+      "call": "archive_job",
+      "callback_id": "callback-2",
+      "event": "framenavigated",
+      "kind": "listener.remove"
+    },
+    {
+      "call": "archive_job",
+      "kind": "boundary.rate_limit"
+    },
+    {
+      "call": "archive_job",
+      "dismissed": false,
+      "kind": "boundary.modal"
+    },
+    {
+      "call": "archive_job",
+      "kind": "wait_for_selector",
+      "operation": "job_tracker_cards",
+      "selector": "main :is(a[href*=\"/jobs/view/\"], [componentkey^=\"job-card-component-ref-\"])",
+      "state": "attached",
+      "timeout_ms": 10000
+    },
+    {
+      "arg": {
+        "jobId": "123",
+        "mark": "data-mcp-tracker-menu",
+        "selector": "a[href*=\"/jobs/view/\"], [componentkey^=\"job-card-component-ref-\"]"
+      },
+      "call": "archive_job",
+      "kind": "evaluate",
+      "operation": "job_tracker_card",
+      "program_digest": "1f723d264093"
+    }
+  ],
+  "result": {
+    "already_archived": true,
+    "archived": true,
+    "job_id": "123",
+    "stage": "applied",
+    "url": "https://www.linkedin.com/jobs-tracker/?stage=archived"
+  },
+  "scenario": "archive_job__already_archived",
+  "schema_version": 1
+}
