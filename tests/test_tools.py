@@ -38,6 +38,7 @@ def _make_mock_extractor(result: dict) -> MagicMock:
     mock.unsave_job = AsyncMock(return_value=result)
     mock.archive_job = AsyncMock(return_value=result)
     mock.get_easy_apply_form = AsyncMock(return_value=result)
+    mock.dismiss_job = AsyncMock(return_value=result)
     mock.search_people = AsyncMock(return_value=result)
     mock.get_sidebar_profiles = AsyncMock(return_value=result)
     mock.get_inbox = AsyncMock(return_value=result)
@@ -135,6 +136,12 @@ def serve_extractor(monkeypatch: pytest.MonkeyPatch) -> Callable[[Any], AsyncMoc
             "get_job_apply_url",
             {"job_id": "/feed/"},
             "job_id is not a LinkedIn id",
+        ),
+        (
+            "job",
+            "search_jobs",
+            {"keywords": "python", "dismiss_ids": ["111", "/feed/"]},
+            "dismiss_ids holds '/feed/'",
         ),
         (
             "messaging",
@@ -1257,6 +1264,62 @@ class TestJobTools:
         assert "search_results" in result["sections"]
         assert "pages_visited" not in result
 
+    async def test_search_jobs_passes_on_the_offset_to_resume_from(
+        self, mock_context, serve_extractor
+    ):
+        mock_extractor = _make_mock_extractor(
+            {
+                "url": "https://www.linkedin.com/jobs/search/?keywords=python",
+                "sections": {"search_results": "Job 1"},
+            }
+        )
+
+        from linkedin_mcp_server.tools.job import register_job_tools
+
+        mcp = FastMCP("test")
+        register_job_tools(mcp)
+
+        serve_extractor(mock_extractor)
+        tool_fn = await get_tool_fn(mcp, "search_jobs")
+        await tool_fn("python", mock_context, start=37)
+
+        assert mock_extractor.search_jobs.await_args.kwargs["start"] == 37
+
+    async def test_search_jobs_passes_on_the_normalized_ids_to_dismiss(
+        self, mock_context, serve_extractor
+    ):
+        mock_extractor = _make_mock_extractor(
+            {"url": "https://www.linkedin.com/jobs/search/?keywords=python"}
+        )
+
+        from linkedin_mcp_server.tools.job import register_job_tools
+
+        mcp = FastMCP("test")
+        register_job_tools(mcp)
+
+        serve_extractor(mock_extractor)
+        tool_fn = await get_tool_fn(mcp, "search_jobs")
+        await tool_fn(
+            "python",
+            mock_context,
+            dismiss_ids=["/jobs/view/111/", "222", "111"],
+        )
+
+        kwargs = mock_extractor.search_jobs.await_args.kwargs
+        assert kwargs["dismiss_ids"] == ["111", "222"]
+
+    async def test_search_jobs_is_not_read_only(self):
+        """dismiss_ids writes to the account, so a replay is not free."""
+        from linkedin_mcp_server.tools.job import register_job_tools
+
+        mcp = FastMCP("test")
+        register_job_tools(mcp)
+
+        tool = await mcp.get_tool("search_jobs")
+        assert tool is not None and tool.annotations is not None
+        assert tool.annotations.read_only_hint is False
+        assert tool.annotations.destructive_hint is True
+
     async def test_search_jobs_is_bounded_by_the_registered_timeout(
         self, mock_context, serve_extractor
     ):
@@ -1394,6 +1457,41 @@ class TestJobTools:
         result = await tool_fn("12345", mock_context)
         assert result == expected
         mock_extractor.archive_job.assert_awaited_once_with("12345", stage="applied")
+
+    async def test_dismiss_job(self, mock_context, serve_extractor):
+        expected = {
+            "url": (
+                "https://www.linkedin.com/jobs/search/"
+                "?keywords=Engineer+Acme&geoId=92000000"
+            ),
+            "job_id": "12345",
+            "keywords": "Engineer Acme",
+            "dismissed": True,
+            "already_dismissed": False,
+        }
+        mock_extractor = _make_mock_extractor(expected)
+
+        from linkedin_mcp_server.tools.job import register_job_tools
+
+        mcp = FastMCP("test")
+        register_job_tools(mcp)
+
+        serve_extractor(mock_extractor)
+        tool_fn = await get_tool_fn(mcp, "dismiss_job")
+        result = await tool_fn("12345", mock_context)
+        assert result == expected
+        mock_extractor.dismiss_job.assert_awaited_once_with("12345")
+
+    async def test_dismiss_job_is_marked_destructive(self):
+        from linkedin_mcp_server.tools.job import register_job_tools
+
+        mcp = FastMCP("test")
+        register_job_tools(mcp)
+
+        tool = await mcp.get_tool("dismiss_job")
+        assert tool is not None and tool.annotations is not None
+        assert tool.annotations.read_only_hint is False
+        assert tool.annotations.destructive_hint is True
 
 
 class TestGetSidebarProfilesTool:

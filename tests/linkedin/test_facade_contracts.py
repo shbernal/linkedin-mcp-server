@@ -60,6 +60,7 @@ TOOL_DELEGATES = {
     "get_saved_jobs": "get_saved_jobs",
     "unsave_job": "unsave_job",
     "archive_job": "archive_job",
+    "dismiss_job": "dismiss_job",
     "get_sidebar_profiles": "get_sidebar_profiles",
     "search_companies": "search_companies",
     "search_conversations": "search_conversations",
@@ -329,6 +330,8 @@ async def test_facade_search_jobs_forwards_every_filter_in_order(mock_page):
             True,
             "recent",
             17.5,
+            25,
+            ["111"],
         )
 
     assert result is expected
@@ -343,6 +346,8 @@ async def test_facade_search_jobs_forwards_every_filter_in_order(mock_page):
         True,
         "recent",
         17.5,
+        25,
+        ["111"],
     )
 
 
