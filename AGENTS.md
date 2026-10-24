@@ -23,6 +23,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **One section = one navigation.** Each entry in `PERSON_SECTIONS` / `COMPANY_SECTIONS` (`linkedin/fields.py`) maps to exactly one page navigation. Never combine multiple URLs behind a single section.
 - **Minimize DOM dependence.** Prefer innerText and URL navigation over DOM selectors. When DOM access is unavoidable, use minimal generic selectors (`a[href*="/jobs/view/"]`) — never class names tied to LinkedIn's layout.
 - **Detection must be locale-independent.** Classification logic — connection state, action availability, button identity — must rely on URL patterns (`/preload/custom-invite/?vanityName=USER`, `/in/USER/edit/intro/`, `/messaging/compose/`), attribute *presence* (`aria-label` exists, `aria-expanded` exists, `aria-disabled` exists), or structural counts — never on text values like "Connect", "Follow", "Message", "1st", "Pending". The verb in an `aria-label` is locale-dependent; whether the attribute exists is not. Where text is genuinely the only signal, guard it behind an explicit per-locale table and document the limitation in code.
+- **Easy Apply opens one of two dialogs, and the posting's control says which.**
+  An anchor into the posting's `/apply/` route opens one inside the open shadow
+  root of `div#interop-outlet`, so `document.querySelector` finds no dialog, no
+  combobox and no suggestion list. CSS locators pierce an open root on their
+  own, and the programs that do run in the page walk `element.shadowRoot`
+  themselves; swapping either for a document query reaches nothing live. A
+  `<button>` opens a native `<dialog>` in the document instead, whose buttons
+  carry no attribute at all: the footer's last button moves forward, and it is
+  Submit only on the page whose progress bar reads 100, or on a one-page form,
+  which has no progress bar, no Back and the follow box. Its ids are React's
+  `«r8»`, which JSON quoting corrupts for CSS, and a clicked radio or checkbox
+  comes back under a new one. Both dialogs are measured in
+  `docs/easy-apply-markup.md`.
 
 ## Browser Identity Rules
 
@@ -152,6 +165,7 @@ Optional additional keys:
 - `unsave_job` and `archive_job` return no `sections`: `{url, job_id, saved: false, already_unsaved}` and `{url, job_id, stage, archived: true, already_archived}`
 - `apply: {type, url?}` (get_job_apply_url, which returns no `sections`) — `type` is `easy_apply`, `external`, `applied`, `closed` or `unknown`; `url` is the employer's application link as LinkedIn gives it, never opened, present for external postings
 - `apply: {type}` (get_job_details) — `type` is `applied` or `closed`, read from the posting's text above its description without clicking; absent for an open posting and for one whose description heading was not captured
+- `form: {steps: [{heading?, progress?, fields: [{label, type, required, options?, options_total?, selected?, value?, max_length?, error?}]}], complete}` (get_easy_apply_form and submit_easy_apply, which return `apply: {type}` beside it and no `sections`) — present for Easy Apply postings only; `complete` is false when steps after the last one were not read, and `error` marks the fields LinkedIn refused on that step. submit_easy_apply adds `submitted`, the form as it left it, and `follow` and `confirmation` where they apply — `confirmation` is LinkedIn's own modal or, where none renders, the posting's applied line, and is absent when neither appeared, which says nothing about whether the application was sent
 
 ## Tests
 
