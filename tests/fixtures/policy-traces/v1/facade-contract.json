@@ -12,6 +12,10 @@
       "get_page_text"
     ],
     "methods": {
+      "archive_conversation": {
+        "coroutine": true,
+        "signature": "(self, thread_id: 'str') -> 'dict[str, Any]'"
+      },
       "archive_job": {
         "coroutine": true,
         "signature": "(self, job_id: 'str', stage: 'JobsTrackerStage' = 'applied') -> 'dict[str, Any]'"
@@ -118,6 +122,7 @@
       }
     },
     "tool_methods": [
+      "archive_conversation",
       "archive_job",
       "connect_with_person",
       "extract_feed",
@@ -144,6 +149,25 @@
       "unsave_job"
     ],
     "tool_schemas": {
+      "archive_conversation": {
+        "input": {
+          "additionalProperties": false,
+          "properties": {
+            "thread_id": {
+              "description": "LinkedIn messaging thread ID, as get_inbox,\nsearch_conversations or get_conversation return it",
+              "type": "string"
+            }
+          },
+          "required": [
+            "thread_id"
+          ],
+          "type": "object"
+        },
+        "output": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
       "archive_job": {
         "input": {
           "additionalProperties": false,
