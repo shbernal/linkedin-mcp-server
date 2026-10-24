@@ -7,6 +7,9 @@ from ipaddress import IPv6Address, ip_address
 from typing import Any, Literal
 from urllib.parse import parse_qs, urlparse
 
+
+from linkedin_mcp_server.core.exceptions import InvalidReferenceError
+from linkedin_mcp_server.linkedin.identifiers import normalize_job_id
 from linkedin_mcp_server.linkedin.link_metadata import (
     JOB_PATH_RE,
     Reference,
@@ -209,6 +212,32 @@ RESULTS_PER_LINKEDIN_PAGE = 25
 JOB_SEARCH_PATHS = frozenset({"/jobs/search", "/jobs/search-results"})
 
 
+# LinkedIn's "Worldwide" location. A search without a location is not
+# unscoped: LinkedIn applies the account's remembered location, so a posting
+# listed elsewhere drops out of it.
+WORLDWIDE_GEO_ID = "92000000"
+
+# A posting's document title is "<card title> | <company> | LinkedIn", with
+# "(3) " in front while notifications are unread. The card title can itself
+# hold " | ", so the split runs from the right.
+_UNREAD_PREFIX_RE = re.compile(r"^\(\d+\+?\)\s*")
+
+
+def parse_posting_title(title: str) -> tuple[str, str] | None:
+    """The card title and company named by a job posting's document title.
+
+    None while the title has another shape, such as the bare "LinkedIn" shown
+    before the posting renders.
+    """
+    parts = _UNREAD_PREFIX_RE.sub("", title.strip()).rsplit(" | ", 2)
+    if len(parts) != 3 or parts[2].strip() != "LinkedIn":
+        return None
+    card_title, company = parts[0].strip(), parts[1].strip()
+    if not card_title or not company:
+        return None
+    return card_title, company
+
+
 def route(target: str) -> tuple[str, str]:
     """Host and path, which is what identifies a LinkedIn page.
 
@@ -262,6 +291,27 @@ SCROLL_BUDGET_TOTAL = 60.0
 # The timeout arrives as an argument so this budget matches the timeout the
 # server registered for the tool, including directly constructed servers.
 SEARCH_TIMEOUT_FRACTION = 0.8
+
+# How many cards one `search_jobs` call may click dismiss on. Each click is a
+# write to the account, and LinkedIn flags automated volume; a known job past
+# the cap is met again, and dismissed, by a later search.
+MAX_INLINE_DISMISSALS = 10
+
+
+def normalize_dismiss_ids(ids: list[str] | None) -> list[str]:
+    """``search_jobs``'s ``dismiss_ids`` as numeric job ids, first seen first.
+
+    Raises `InvalidReferenceError` on an id that is not a job's, so a typo is
+    refused before any browser work rather than silently never matched.
+    """
+    normalized: dict[str, None] = {}
+    for job_id in ids or ():
+        try:
+            normalized[normalize_job_id(job_id)] = None
+        except InvalidReferenceError as e:
+            raise InvalidReferenceError(f"dismiss_ids holds {job_id!r}: {e}") from e
+    return list(normalized)
+
 
 # The job tracker, which lists the account's jobs one stage at a time with
 # `?stage=`. The old `/my-items/saved-jobs/` redirects here and drops the
