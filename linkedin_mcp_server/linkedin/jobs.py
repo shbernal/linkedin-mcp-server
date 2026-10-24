@@ -342,7 +342,10 @@ class JobReader:
             sort_by: Sort results (date, relevance)
 
         Returns:
-            {url, sections: {search_results: text}, job_ids: [str]}
+            {url, sections: {search_results: text}, job_ids: [str],
+            pagination: {pages_fetched, next_offset, reason}}. ``pagination``
+            is absent when a failure stopped the search, which
+            ``section_errors`` then explains.
         """
         base_url = build_job_search_url(
             keywords,
@@ -372,6 +375,13 @@ class JobReader:
         # then cover only some of `job_ids`, and a caller takes a job missing
         # from it as not promoted.
         promoted_complete = True
+        # Why paging stopped, for every stop that is not a failure. A search
+        # the clock or `max_pages` cut short otherwise has exactly the shape
+        # of one that ran out of results, and only the caller knows whether
+        # asking again would help. Left unset by a failure, whose
+        # `section_errors` entry already says why the list ends there.
+        stop_reason: str | None = None
+        pages_fetched = 0
 
         # The search-wide scroll budget is spent as it goes rather than
         # divided up front, because dividing it charges every navigation for
@@ -403,6 +413,7 @@ class JobReader:
                     offset,
                     total_pages,
                 )
+                stop_reason = "complete"
                 break
 
             elapsed = time.monotonic() - started
@@ -415,6 +426,7 @@ class JobReader:
                     NAV_DELAY + slowest_page,
                     budget,
                 )
+                stop_reason = "time_budget"
                 break
 
             if page_num > 0:
@@ -448,6 +460,7 @@ class JobReader:
                     page_deadline=started + budget,
                 )
                 extracted = capture.section
+                pages_fetched += 1
                 slowest_page = max(slowest_page, time.monotonic() - page_started)
                 scroll_budget_left = max(
                     0.0, scroll_budget_left - capture.scroll_seconds
@@ -582,6 +595,7 @@ class JobReader:
                     # The route and query survived, so this is a real empty
                     # result rather than a redirect that silently replaced the
                     # search. Do not read ids from a DOM that supplied no text.
+                    stop_reason = "complete"
                     break
 
                 if is_no_match:
@@ -599,6 +613,7 @@ class JobReader:
                         section_errors["search_results"] = (
                             no_matching_jobs_section_error(keywords)
                         )
+                    stop_reason = "complete"
                     break
 
                 if page_num == 0:
@@ -640,6 +655,7 @@ class JobReader:
                     if page_refs:
                         page_references.extend(page_refs)
                     logger.debug("No new job IDs on page %d, stopping", page_num + 1)
+                    stop_reason = "no_new_ids"
                     break
 
                 # Best effort, like the page count: a read that fails costs the
@@ -677,6 +693,8 @@ class JobReader:
                     section_name="search_results",
                 )
                 break
+        else:
+            stop_reason = "max_pages"
 
         result: dict[str, Any] = {
             "url": base_url,
@@ -708,6 +726,12 @@ class JobReader:
                 )
         if section_errors:
             result["section_errors"] = section_errors
+        if stop_reason is not None:
+            result["pagination"] = {
+                "pages_fetched": pages_fetched,
+                "next_offset": offset,
+                "reason": stop_reason,
+            }
         return result
 
     async def get_saved_jobs(
