@@ -144,7 +144,7 @@ def _expect(holds: bool, rule: str) -> None:
 class _Calls(dict[int, lifecycle.Call]):
     """An owner's admitted calls, hashable so equal worlds are visited once."""
 
-    def __hash__(self) -> int:
+    def __hash__(self) -> int:  # ty: ignore[invalid-attribute-override]
         return hash(frozenset(self.items()))
 
 
