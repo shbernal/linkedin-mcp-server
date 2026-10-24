@@ -31,6 +31,7 @@ from linkedin_mcp_server.linkedin.job_pages import (
 from linkedin_mcp_server.linkedin.job_policy import (
     EasyApplyAnswer,
     JOB_SEARCH_PATHS,
+    MAX_INLINE_DISMISSALS,
     RESULTS_PER_LINKEDIN_PAGE,
     SAVED_JOBS_PAGE_SIZE,
     SAVED_JOBS_PATHS,
@@ -38,6 +39,7 @@ from linkedin_mcp_server.linkedin.job_policy import (
     SCROLL_BUDGET_TOTAL,
     SCROLL_DEADLINE_MAX,
     SEARCH_TIMEOUT_FRACTION,
+    WORLDWIDE_GEO_ID,
     JobsTrackerStage,
     apply_link_missing_section_error,
     dropped_filters_section_error,
@@ -47,6 +49,7 @@ from linkedin_mcp_server.linkedin.job_policy import (
     lost_keywords_section_error,
     missing_description_section_error,
     no_matching_jobs_section_error,
+    normalize_dismiss_ids,
     posting_state,
     reconcile_search_references,
     tracker_page_unreachable_section_error,
@@ -323,6 +326,8 @@ class JobReader:
         easy_apply: bool = False,
         sort_by: str | None = None,
         tool_timeout: float = DEFAULT_TOOL_TIMEOUT_SECONDS,
+        start: int = 0,
+        dismiss_ids: list[str] | None = None,
     ) -> dict[str, Any]:
         """Search for jobs with pagination and job ID extraction.
 
@@ -340,13 +345,24 @@ class JobReader:
             work_type: Filter by work type (on_site, remote, hybrid)
             easy_apply: Only show Easy Apply jobs
             sort_by: Sort results (date, relevance)
+            tool_timeout: Seconds the caller allows the whole search
+            start: Result offset of the first page, usually a previous
+                call's ``pagination.next_offset``
+            dismiss_ids: Jobs to dismiss where this search meets them. Each
+                card is dismissed on the results page it was read from, after
+                the page is read, so ``job_ids`` and paging are unchanged.
 
         Returns:
             {url, sections: {search_results: text}, job_ids: [str],
             pagination: {pages_fetched, next_offset, reason}}. ``pagination``
             is absent when a failure stopped the search, which
-            ``section_errors`` then explains.
+            ``section_errors`` then explains. With ``dismiss_ids``, also
+            ``dismissed: {job_id: outcome}`` for every one of them the search
+            met.
         """
+        to_dismiss = set(normalize_dismiss_ids(dismiss_ids))
+        dismissed: dict[str, str] = {}
+        clicks = 0
         base_url = build_job_search_url(
             keywords,
             location=location,
@@ -393,7 +409,7 @@ class JobReader:
         scroll_budget_left = SCROLL_BUDGET_TOTAL
         # The offset follows what the pages actually rendered. LinkedIn's own
         # stride would skip every result it renders beyond it.
-        offset = 0
+        offset = start
 
         # The next navigation is costed from the slowest one so far rather than
         # a constant: the real figure is 6.5s and the `goto` timeout alone is
@@ -609,7 +625,11 @@ class JobReader:
                         "Search page %d shows recommendations, not results",
                         page_num + 1,
                     )
-                    if not all_job_ids:
+                    # Only a search read from its first result can have
+                    # matched nothing. A resumed one reaching this page has
+                    # run past the end of a list an earlier call read from,
+                    # so it is complete like the case after real results.
+                    if not all_job_ids and start == 0:
                         section_errors["search_results"] = (
                             no_matching_jobs_section_error(keywords)
                         )
@@ -682,6 +702,23 @@ class JobReader:
                 if page_refs:
                     page_references.extend(page_refs)
 
+                # Last on the page, once everything it contributes is kept,
+                # and before the next navigation reloads the cards away.
+                for jid in new_ids:
+                    if jid not in to_dismiss:
+                        continue
+                    if clicks >= MAX_INLINE_DISMISSALS:
+                        dismissed[jid] = "skipped_cap"
+                        continue
+                    if time.monotonic() - started >= budget:
+                        dismissed[jid] = "skipped_time_budget"
+                        continue
+                    if clicks:
+                        await asyncio.sleep(NAV_DELAY)
+                    dismissed[jid] = await self._dismiss_listed(jid)
+                    if dismissed[jid] in ("dismissed", "not_dismissed"):
+                        clicks += 1
+
             except LinkedInOperationError:
                 raise
             except Exception as e:
@@ -697,7 +734,9 @@ class JobReader:
             stop_reason = "max_pages"
 
         result: dict[str, Any] = {
-            "url": base_url,
+            # The first page this call asked for, so a resumed search names
+            # the offset it read from rather than the search's first page.
+            "url": base_url if start == 0 else f"{base_url}&start={start}",
             "sections": {"search_results": "\n---\n".join(page_texts)}
             if page_texts
             else {},
@@ -732,7 +771,27 @@ class JobReader:
                 "next_offset": offset,
                 "reason": stop_reason,
             }
+        if dismiss_ids is not None:
+            result["dismissed"] = dismissed
         return result
+
+    async def _dismiss_listed(self, job_id: str) -> str:
+        """Dismiss a card on the open results page, answering with its outcome.
+
+        A card the rail listed but no `data-occludable-job-id` card holds is
+        reported as ``no_button``, since from the caller's side the same thing
+        is missing. An operation error, such as a rate limit or an auth barrier,
+        raises as it would anywhere on the page; any other failure is
+        ``not_dismissed`` and never costs the search its results.
+        """
+        try:
+            outcome = await self._pages.dismiss_listed_card(job_id)
+        except LinkedInOperationError:
+            raise
+        except Exception as e:
+            logger.warning("Could not dismiss job %s: %s", job_id, e)
+            return "not_dismissed"
+        return "no_button" if outcome == "absent" else outcome
 
     async def get_saved_jobs(
         self, max_pages: int = 3, stage: JobsTrackerStage = "saved"
@@ -1044,6 +1103,63 @@ class JobReader:
                     "but it was back after a reload."
                 )
         return outcome
+
+    async def dismiss_job(self, job_id: str) -> dict[str, Any]:
+        """Dismiss a job from job search, so later searches no longer show it.
+
+        Acts on the job's card in the first page of a worldwide search for
+        the title and company its posting names, which has to list it: a
+        search by `currentJobId` shows the job only in the detail pane, which
+        has no dismiss control. Worldwide, because a search without a location
+        is scoped to the account's remembered one. The card turning to its
+        undo state is not yet a change LinkedIn kept, so the search is loaded
+        again and must not list the job either, while rendering the other
+        cards it showed before. Irreversible: the undo is
+        offered only in place, before any reload.
+
+        A dismissed job and a search that missed it look the same, since
+        neither lists the job, so a job the search does not list is an error
+        naming both.
+
+        Returns:
+            {url, job_id, keywords, dismissed: True, already_dismissed}
+        """
+        job_id = normalize_job_id(job_id)
+        card_title, company = await self._pages.read_posting_title(job_id)
+        keywords = f"{card_title} {company}"
+        url = f"{build_job_search_url(keywords)}&geoId={WORLDWIDE_GEO_ID}"
+        await asyncio.sleep(NAV_DELAY)
+        outcome, cards = await self._pages.dismiss_search_card(url, job_id)
+        if outcome == "absent":
+            raise LinkedInOperationError(
+                f"Job {job_id} is not on the first page of a worldwide search "
+                f"for {keywords!r}. Either it is already dismissed, or that "
+                "search does not list it on its first page."
+            )
+        if outcome == "no_button":
+            raise LinkedInOperationError(
+                f"Job {job_id} is in the search results, but its dismiss button "
+                "could not be found."
+            )
+        if outcome == "not_dismissed":
+            raise LinkedInOperationError(
+                f"The dismiss button of job {job_id} was clicked, but its card "
+                "did not change."
+            )
+        if outcome == "dismissed":
+            await asyncio.sleep(NAV_DELAY)
+            if await self._pages.search_lists_job(url, job_id, cards - 1):
+                raise LinkedInOperationError(
+                    f"Job {job_id} was dismissed, but it was back in the search "
+                    "after a reload."
+                )
+        return {
+            "url": url,
+            "job_id": job_id,
+            "keywords": keywords,
+            "dismissed": True,
+            "already_dismissed": outcome == "already_dismissed",
+        }
 
 
 def _beyond_first_page(job_id: str, stage: JobsTrackerStage) -> LinkedInOperationError:
