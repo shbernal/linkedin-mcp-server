@@ -3,8 +3,9 @@
 ``fork/branches.txt`` lists, in merge order, the branches the integration
 branch is rebuilt from: upstream ``main``, then a no-fast-forward merge of
 each. ``check`` verifies that a rebuild matches the manifest. ``notes``
-drafts release notes for a tag: the upstream commit it is based on, and each
-branch with the tip merged and the state of its upstream pull request.
+drafts release notes for a tag: the upstream commit it is based on, each
+branch with the tip merged and the state of its upstream pull request, and the
+tools the tag serves that upstream does not.
 """
 
 from __future__ import annotations
@@ -19,7 +20,9 @@ from pathlib import Path
 
 UPSTREAM = "stickerdaniel/linkedin-mcp-server"
 MANIFEST = "fork/branches.txt"
+TOOLS_DIR = "linkedin_mcp_server/tools"
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+_TOOL_NAME = re.compile(r'tool_name="([a-z_]+)"')
 _MERGE_SUBJECT = re.compile(
     r"^Merge (?:branch '|remote-tracking branch '[^/']+/)(?P<branch>[^']+)'"
 )
@@ -131,6 +134,12 @@ def pr_state(number: int) -> str:
     return str(json.loads(result.stdout)["state"]).lower()
 
 
+def tool_names(ref: str) -> set[str]:
+    # Only the tools package registers tools; tests pass tool_name too.
+    found = git("grep", "-h", "-o", "-E", _TOOL_NAME.pattern, ref, "--", TOOLS_DIR)
+    return set(_TOOL_NAME.findall(found))
+
+
 def notes(tag: str, entries: list[Entry]) -> str:
     merges, base = first_parent_line(tag)
     tips: dict[str, str] = {}
@@ -164,6 +173,10 @@ def notes(tag: str, entries: list[Entry]) -> str:
         else:
             pr_cell = f"[#{entry.pr}](https://github.com/{UPSTREAM}/pull/{entry.pr}) {pr_state(entry.pr)}"
         lines.append(f"| `{entry.branch}` | {tip_cell} | {pr_cell} |")
+    # Against the tag's own base, so old tags read the same later.
+    added = sorted(tool_names(tag) - tool_names(base))
+    listed = ", ".join(f"`{name}`" for name in added) if added else "none"
+    lines += ["", f"Tools not on upstream `main`: {listed}."]
     return "\n".join(lines)
 
 
