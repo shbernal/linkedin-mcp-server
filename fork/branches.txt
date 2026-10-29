@@ -9,13 +9,9 @@ feature/easy-apply-form 1343
 feature/easy-apply-submit -
 feature/easy-apply-dialog -
 feature/reply-to-conversation 1342
-feature/1263-throttle-evidence 1264
 feature/794-archive-conversation 1354
-feature/756-search-pagination-reason 1323
 feature/search-jobs-start -
 feature/1325-dismiss-job 1326
 feature/search-jobs-dismiss-ids -
-docs/1361-search-jobs-redesign 1362
-fix/1360-search-jobs-redesign-no-match 1363
 local/hold-message-send -
 local/fork-meta -

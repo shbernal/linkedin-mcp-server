@@ -19,11 +19,8 @@ this list.
 | `reply_to_conversation` | Replies on an existing message thread | [#1342](https://github.com/stickerdaniel/linkedin-mcp-server/pull/1342) |
 | `archive_conversation` | Archives a message thread | [#1354](https://github.com/stickerdaniel/linkedin-mcp-server/pull/1354) |
 | `dismiss_job` | Dismisses a job from LinkedIn job search | [#1326](https://github.com/stickerdaniel/linkedin-mcp-server/pull/1326) |
-| `search_jobs` `pagination` | Says why a search stopped paging | [#1323](https://github.com/stickerdaniel/linkedin-mcp-server/pull/1323) |
 | `search_jobs` `start` | Resumes a search from a result offset | - |
 | `search_jobs` `dismiss_ids` | Dismisses known jobs while searching | - |
-| `search_jobs` on the redesigned page | Detects a search with no matches | [#1363](https://github.com/stickerdaniel/linkedin-mcp-server/pull/1363) |
-| Throttle evidence | A failed call names the 429 or 999 responses LinkedIn sent | [#1264](https://github.com/stickerdaniel/linkedin-mcp-server/pull/1264) |
 | `LINKEDIN_DEBUG_HOLD_MESSAGE_SEND` | Delays or aborts message sends, to test an unconfirmed send | never |
 
 ## Branches
