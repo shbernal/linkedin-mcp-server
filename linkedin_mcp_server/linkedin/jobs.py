@@ -10,7 +10,10 @@ import logging
 import time
 
 from linkedin_mcp_server.config.schema import DEFAULT_TOOL_TIMEOUT_SECONDS
-from linkedin_mcp_server.core.exceptions import LinkedInOperationError
+from linkedin_mcp_server.core.exceptions import (
+    InvalidReferenceError,
+    LinkedInOperationError,
+)
 from linkedin_mcp_server.error_diagnostics import build_issue_diagnostics
 from linkedin_mcp_server.linkedin.capture import (
     CaptureMode,
@@ -881,9 +884,12 @@ class JobReader:
             if not listing.listed:
                 if outcome == "beyond_first_page":
                     raise _beyond_first_page(job_id, stage)
-                raise LinkedInOperationError(
+                # The caller's to correct, not a page that failed: the tab it
+                # named was read whole and does not list the job.
+                raise InvalidReferenceError(
                     f"Job {job_id} is neither in the job tracker's {stage} tab "
-                    "nor on the first page of its archived tab."
+                    "nor on the first page of its archived tab. Pass the tab "
+                    "it is in as stage."
                 )
         return {
             "url": tracker_stage_url("archived"),

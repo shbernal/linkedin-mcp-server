@@ -13,6 +13,7 @@ from patchright.async_api import TimeoutError as PlaywrightTimeoutError
 
 from linkedin_mcp_server.core.exceptions import (
     AuthenticationError,
+    InvalidReferenceError,
     LinkedInOperationError,
 )
 from linkedin_mcp_server.linkedin import jobs as jobs_module
@@ -3780,7 +3781,7 @@ class TestTrackerActions:
         reader = _reader(mock_page)
         act, read, sleep = self._stub(reader, "absent", TrackerListing(False, 4))
         with act, read, sleep:
-            with pytest.raises(LinkedInOperationError, match="neither"):
+            with pytest.raises(InvalidReferenceError, match="neither.*as stage"):
                 await reader.archive_job("123")
 
     async def test_archiving_from_the_archived_tab_is_refused(self, mock_page):
