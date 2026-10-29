@@ -11,6 +11,7 @@ from linkedin_mcp_server.linkedin.job_policy import (
     reconcile_search_references,
     route,
     same_job_search,
+    tracker_tab_count,
 )
 from linkedin_mcp_server.linkedin.link_metadata import (
     Reference,
@@ -241,3 +242,17 @@ class TestEmployerApplyUrl:
         url = "https://jobs.example.com/acme%20jobs/1?source=some%20board"
 
         assert employer_apply_url(url) == url
+
+
+class TestTrackerTabCount:
+    def test_reads_the_count_beside_its_own_tab(self):
+        text = "Saved · 0\nIn Progress · 1\nApplied · 10\nArchived"
+
+        assert tracker_tab_count(text, "Applied") == 10
+        assert tracker_tab_count(text, "In Progress") == 1
+
+    def test_a_tab_with_no_count_has_none(self):
+        assert tracker_tab_count("Saved · 0\nArchived", "Archived") is None
+
+    def test_a_card_line_is_not_a_tab(self):
+        assert tracker_tab_count("Applied 1d ago", "Applied") is None
