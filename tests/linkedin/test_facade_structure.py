@@ -55,6 +55,7 @@ PUBLIC_SIGNATURES = {
     "submit_easy_apply": "(self, job_id: 'str', answers: 'Mapping[str, EasyApplyAnswer] | None' = None, follow_company: 'bool' = False, confirm_submit: 'bool' = False) -> 'dict[str, Any]'",
     "search_posts": "(self, keywords: 'str', date_posted: 'str | None' = None, max_pages: 'int' = 3, content_type: 'str | None' = None) -> 'dict[str, Any]'",
     "send_message": "(self, linkedin_username: 'str', message: 'str', *, confirm_send: 'bool', profile_urn: 'str | None' = None) -> 'dict[str, Any]'",
+    "reply_to_conversation": "(self, thread_id: 'str', message: 'str', *, confirm_send: 'bool') -> 'dict[str, Any]'",
 }
 
 DELEGATES = {
@@ -83,6 +84,7 @@ DELEGATES = {
     "search_posts": ("_posts", "search_posts"),
     "submit_easy_apply": ("_jobs", "submit_easy_apply"),
     "send_message": ("_message_sender", "send_message"),
+    "reply_to_conversation": ("_message_sender", "reply_to_conversation"),
 }
 
 DELEGATE_CALLS = {
@@ -111,6 +113,7 @@ DELEGATE_CALLS = {
     "search_posts": "self._posts.search_posts(keywords, date_posted=date_posted, max_pages=max_pages, content_type=content_type)",
     "submit_easy_apply": "self._jobs.submit_easy_apply(job_id, answers, follow_company, confirm_submit)",
     "send_message": "self._message_sender.send_message(linkedin_username, message, confirm_send=confirm_send, profile_urn=profile_urn)",
+    "reply_to_conversation": "self._message_sender.reply_to_conversation(thread_id, message, confirm_send=confirm_send)",
 }
 
 FACADE_STATE = {
