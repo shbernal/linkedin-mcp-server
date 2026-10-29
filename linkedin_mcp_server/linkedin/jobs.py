@@ -10,7 +10,10 @@ import logging
 import time
 
 from linkedin_mcp_server.config.schema import DEFAULT_TOOL_TIMEOUT_SECONDS
-from linkedin_mcp_server.core.exceptions import LinkedInOperationError
+from linkedin_mcp_server.core.exceptions import (
+    InvalidReferenceError,
+    LinkedInOperationError,
+)
 from linkedin_mcp_server.error_diagnostics import build_issue_diagnostics
 from linkedin_mcp_server.linkedin.capture import (
     CaptureMode,
@@ -22,7 +25,10 @@ from linkedin_mcp_server.linkedin.contracts import (
     rate_limited_section_error,
 )
 from linkedin_mcp_server.linkedin.identifiers import job_view_url, normalize_job_id
-from linkedin_mcp_server.linkedin.job_pages import JobPageReader
+from linkedin_mcp_server.linkedin.job_pages import (
+    JobPageReader,
+    TrackerCardOutcome,
+)
 from linkedin_mcp_server.linkedin.job_policy import (
     JOB_SEARCH_PATHS,
     RESULTS_PER_LINKEDIN_PAGE,
@@ -42,6 +48,7 @@ from linkedin_mcp_server.linkedin.job_policy import (
     no_matching_jobs_section_error,
     posting_state,
     reconcile_search_references,
+    tracker_stage_url,
 )
 from linkedin_mcp_server.linkedin.link_metadata import Reference, dedupe_references
 from linkedin_mcp_server.linkedin.navigation import PageNavigator
@@ -51,8 +58,10 @@ from linkedin_mcp_server.linkedin.text import (
     JOB_APPLY_EN_US,
     JOB_POSTING_EN_US,
     JOB_SEARCH_EN_US,
+    JOB_TRACKER_EN_US,
     JobApplyTextTable,
     JobSearchTextTable,
+    JobTrackerTextTable,
 )
 
 logger = logging.getLogger(__name__)
@@ -91,12 +100,14 @@ class JobReader:
         pages: JobPageReader,
         search_text: JobSearchTextTable = JOB_SEARCH_EN_US,
         apply_text: JobApplyTextTable = JOB_APPLY_EN_US,
+        tracker_text: JobTrackerTextTable = JOB_TRACKER_EN_US,
     ):
         self._navigator = navigator
         self._capture = capture
         self._pages = pages
         self._search_text = search_text
         self._apply_text = apply_text
+        self._tracker_text = tracker_text
 
     async def read_job(self, job_id: str) -> dict[str, Any]:
         """Read a single job posting.
@@ -819,3 +830,115 @@ class JobReader:
         if section_errors:
             result["section_errors"] = section_errors
         return result
+
+    async def unsave_job(self, job_id: str) -> dict[str, Any]:
+        """Remove a job from the account's saved jobs, from the job tracker.
+
+        The tracker rather than the posting, because a posting shows its Save
+        control only while it is open and not applied to: a closed saved job
+        has none, and is exactly the kind a caller cleans up. A job the saved
+        tab does not list is already unsaved, which includes every applied job:
+        LinkedIn moves those to the applied tab, whose menu has no Unsave.
+
+        Returns:
+            {url, job_id, saved: False, already_unsaved}
+        """
+        job_id = normalize_job_id(job_id)
+        outcome = await self._act_on_tracker_card(
+            "saved", job_id, self._tracker_text.unsave_item
+        )
+        if outcome == "beyond_first_page":
+            raise _beyond_first_page(job_id, "saved")
+        return {
+            "url": tracker_stage_url("saved"),
+            "job_id": job_id,
+            "saved": False,
+            "already_unsaved": outcome == "absent",
+        }
+
+    async def archive_job(
+        self, job_id: str, stage: JobsTrackerStage = "applied"
+    ) -> dict[str, Any]:
+        """Move a job from one job-tracker tab to the archived one.
+
+        What ends an application the tracker still lists: an applied job
+        cannot be unsaved, only archived. Reversible from the archived tab
+        with Change stage. A job ``stage`` does not list but the archived tab
+        does is already archived; one neither lists is an error, because the
+        caller named a tab it is not in. The archived tab is asked too when
+        ``stage`` holds a full page without the job, since an application tab
+        fills one quickly and a job archived from it is gone from it.
+
+        Returns:
+            {url, job_id, stage, archived: True, already_archived}
+        """
+        job_id = normalize_job_id(job_id)
+        if stage == "archived":
+            raise ValueError("stage names the tab the job is archived from")
+        outcome = await self._act_on_tracker_card(
+            stage, job_id, self._tracker_text.archive_item
+        )
+        if outcome != "removed":
+            await asyncio.sleep(NAV_DELAY)
+            listing = await self._pages.read_tracker_listing("archived", job_id)
+            if not listing.listed:
+                if outcome == "beyond_first_page":
+                    raise _beyond_first_page(job_id, stage)
+                # The caller's to correct, not a page that failed: the tab it
+                # named was read whole and does not list the job.
+                raise InvalidReferenceError(
+                    f"Job {job_id} is neither in the job tracker's {stage} tab "
+                    "nor on the first page of its archived tab. Pass the tab "
+                    "it is in as stage."
+                )
+        return {
+            "url": tracker_stage_url("archived"),
+            "job_id": job_id,
+            "stage": stage,
+            "archived": True,
+            "already_archived": outcome != "removed",
+        }
+
+    async def _act_on_tracker_card(
+        self, stage: JobsTrackerStage, job_id: str, item: str
+    ) -> TrackerCardOutcome:
+        """Choose ``item`` for ``job_id`` on a tracker tab, and prove it held.
+
+        Answers ``removed``, ``absent`` or ``beyond_first_page``, which only
+        the caller can settle, and raises for everything else. A card that left
+        the list is not yet a change LinkedIn kept, so the tab is loaded again
+        and must not list the job either.
+        """
+        outcome = await self._pages.act_on_tracker_card(stage, job_id, item)
+        tab = f"the job tracker's {stage} tab"
+        if outcome == "no_menu":
+            raise LinkedInOperationError(
+                f"Job {job_id} is listed in {tab}, but its menu could not be "
+                "found or did not open."
+            )
+        if outcome == "no_item":
+            raise LinkedInOperationError(
+                f"The menu of job {job_id} in {tab} has no {item!r} item."
+            )
+        if outcome == "not_removed":
+            raise LinkedInOperationError(
+                f"{item!r} was chosen for job {job_id}, but it stayed in {tab}."
+            )
+        if outcome == "removed":
+            await asyncio.sleep(NAV_DELAY)
+            listing = await self._pages.read_tracker_listing(stage, job_id)
+            if listing.listed:
+                raise LinkedInOperationError(
+                    f"{item!r} was chosen for job {job_id} and it left {tab}, "
+                    "but it was back after a reload."
+                )
+        return outcome
+
+
+def _beyond_first_page(job_id: str, stage: JobsTrackerStage) -> LinkedInOperationError:
+    """The error for a job a tracker tab may hold past the page it shows."""
+    return LinkedInOperationError(
+        f"Job {job_id} is not on the first page of the job tracker's {stage} "
+        "tab, and the tracker cannot be paged by address. Act on it from "
+        "LinkedIn."
+    )
