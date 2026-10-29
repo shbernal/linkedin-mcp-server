@@ -28,6 +28,10 @@
         "coroutine": true,
         "signature": "(self, username: 'str', *, note: 'str | None' = None) -> 'dict[str, Any]'"
       },
+      "dismiss_job": {
+        "coroutine": true,
+        "signature": "(self, job_id: 'str') -> 'dict[str, Any]'"
+      },
       "extract_feed": {
         "coroutine": true,
         "signature": "(self, num_posts: 'int' = 10) -> 'ExtractedSection'"
@@ -98,7 +102,7 @@
       },
       "search_jobs": {
         "coroutine": true,
-        "signature": "(self, keywords: 'str', location: 'str | None' = None, max_pages: 'int' = 3, date_posted: 'str | None' = None, job_type: 'str | None' = None, experience_level: 'str | None' = None, work_type: 'str | None' = None, easy_apply: 'bool' = False, sort_by: 'str | None' = None, tool_timeout: 'float' = 180.0) -> 'dict[str, Any]'"
+        "signature": "(self, keywords: 'str', location: 'str | None' = None, max_pages: 'int' = 3, date_posted: 'str | None' = None, job_type: 'str | None' = None, experience_level: 'str | None' = None, work_type: 'str | None' = None, easy_apply: 'bool' = False, sort_by: 'str | None' = None, tool_timeout: 'float' = 180.0, start: 'int' = 0, dismiss_ids: 'list[str] | None' = None) -> 'dict[str, Any]'"
       },
       "search_people": {
         "coroutine": true,
@@ -125,6 +129,7 @@
       "archive_conversation",
       "archive_job",
       "connect_with_person",
+      "dismiss_job",
       "extract_feed",
       "extract_page",
       "get_company_employees",
@@ -231,6 +236,25 @@
           },
           "required": [
             "linkedin_username"
+          ],
+          "type": "object"
+        },
+        "output": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
+      "dismiss_job": {
+        "input": {
+          "additionalProperties": false,
+          "properties": {
+            "job_id": {
+              "description": "LinkedIn job ID (e.g., \"4252026496\", \"3856789012\")",
+              "type": "string"
+            }
+          },
+          "required": [
+            "job_id"
           ],
           "type": "object"
         },
@@ -704,6 +728,21 @@
               "default": null,
               "description": "Filter by posting date (past_hour, past_24_hours, past_week, past_month)"
             },
+            "dismiss_ids": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Job ids to dismiss from LinkedIn job search wherever\nthis search meets them, so they stop taking result slots.\nIRREVERSIBLE: a dismissed job never shows in any later search.\nOnly for jobs the caller is done with (applied, rejected,\nalready tracked). Each card is dismissed on the page it was\nread from, and job_ids still lists it. At most 10 are\ndismissed per call; a job never met needs no dismissing."
+            },
             "easy_apply": {
               "default": false,
               "description": "Only show Easy Apply jobs (default false). Classic search only.",
@@ -767,6 +806,12 @@
               ],
               "default": null,
               "description": "Sort results (date, relevance). Classic search only."
+            },
+            "start": {
+              "default": 0,
+              "description": "Result offset to begin at (default 0). Pass a previous\ncall's pagination.next_offset, with the same search\narguments, to continue where it stopped. Results can shift\nbetween calls, so a continuation may repeat a job id.",
+              "minimum": 0,
+              "type": "integer"
             },
             "work_type": {
               "anyOf": [

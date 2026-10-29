@@ -14,7 +14,10 @@ from pydantic import Field
 from linkedin_mcp_server.config.schema import DEFAULT_TOOL_TIMEOUT_SECONDS
 from linkedin_mcp_server.dependencies import get_ready_extractor, tool_errors
 from linkedin_mcp_server.linkedin.identifiers import normalize_job_id
-from linkedin_mcp_server.linkedin.job_policy import JobsTrackerStage
+from linkedin_mcp_server.linkedin.job_policy import (
+    JobsTrackerStage,
+    normalize_dismiss_ids,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -236,7 +239,13 @@ def register_job_tools(
     @mcp.tool(
         timeout=tool_timeout,
         title="Search Jobs",
-        annotations={"readOnlyHint": True, "openWorldHint": True},
+        # Not read-only: `dismiss_ids` dismisses jobs from the account's
+        # searches, which LinkedIn offers no way to undo.
+        annotations={
+            "readOnlyHint": False,
+            "destructiveHint": True,
+            "openWorldHint": True,
+        },
         tags={"job", "search"},
     )
     @tool_errors
@@ -251,6 +260,8 @@ def register_job_tools(
         work_type: str | None = None,
         easy_apply: bool = False,
         sort_by: str | None = None,
+        start: Annotated[int, Field(ge=0)] = 0,
+        dismiss_ids: list[str] | None = None,
     ) -> dict[str, Any]:
         """
         Search for jobs on LinkedIn.
@@ -276,6 +287,17 @@ def register_job_tools(
             work_type: Filter by work type, comma-separated (on_site, remote, hybrid). Classic search only.
             easy_apply: Only show Easy Apply jobs (default false). Classic search only.
             sort_by: Sort results (date, relevance). Classic search only.
+            start: Result offset to begin at (default 0). Pass a previous
+                call's pagination.next_offset, with the same search
+                arguments, to continue where it stopped. Results can shift
+                between calls, so a continuation may repeat a job id.
+            dismiss_ids: Job ids to dismiss from LinkedIn job search wherever
+                this search meets them, so they stop taking result slots.
+                IRREVERSIBLE: a dismissed job never shows in any later search.
+                Only for jobs the caller is done with (applied, rejected,
+                already tracked). Each card is dismissed on the page it was
+                read from, and job_ids still lists it. At most 10 are
+                dismissed per call; a job never met needs no dismissing.
 
         Returns:
             Dict with url, sections (name -> raw text), job_ids (list of
@@ -292,6 +314,13 @@ def register_job_tools(
             (the tool timeout was near, so more results may exist) or
             no_new_ids (a page repeated earlier results). It is absent when a
             failure stopped the search, which section_errors then explains.
+            dismissed, present when dismiss_ids was passed, maps each of
+            them the search met to dismissed, already_dismissed, no_button
+            (no dismiss control found on its card), not_dismissed (clicked,
+            the card never showed its undo state), skipped_cap (over the 10
+            per call) or skipped_time_budget (the tool timeout was near).
+            Anything but dismissed or already_dismissed is met again, and can
+            be dismissed, by a later search.
         """
         # Before the browser, because FastMCP is already timing this call
         # and the extractor's budget is a fraction of the same figure. A
@@ -299,6 +328,8 @@ def register_job_tools(
         # against eight it no longer had, and the call was cancelled with
         # every page it had gathered.
         started = time.monotonic()
+        if dismiss_ids is not None:
+            dismiss_ids = normalize_dismiss_ids(dismiss_ids)
         extractor = await get_ready_extractor(ctx, tool_name="search_jobs")
         logger.info(
             "Searching jobs: keywords='%s', location='%s', max_pages=%d",
@@ -319,6 +350,8 @@ def register_job_tools(
             work_type=work_type,
             easy_apply=easy_apply,
             sort_by=sort_by,
+            start=start,
+            dismiss_ids=dismiss_ids,
             # What is left of the figure FastMCP cancels this call on.
             tool_timeout=max(0.0, tool_timeout - (time.monotonic() - started)),
         )
@@ -361,6 +394,52 @@ def register_job_tools(
         await ctx.report_progress(progress=0, total=100, message="Loading saved jobs")
 
         result = await extractor.get_saved_jobs(max_pages=max_pages, stage=stage)
+
+        await ctx.report_progress(progress=100, total=100, message="Complete")
+
+        return result
+
+    @mcp.tool(
+        timeout=tool_timeout,
+        title="Dismiss Job",
+        annotations={
+            "readOnlyHint": False,
+            "destructiveHint": True,
+            "idempotentHint": True,
+            "openWorldHint": True,
+        },
+        tags={"job"},
+    )
+    @tool_errors
+    async def dismiss_job(
+        job_id: str,
+        ctx: Context,
+    ) -> dict[str, Any]:
+        """
+        Dismiss a job from LinkedIn job search so later searches never show it.
+
+        For jobs already applied to or rejected. Reads the job's title and
+        company from its posting, clicks the dismiss button on its card in a
+        worldwide search for them, then reloads that search to confirm the job
+        is gone. Irreversible: LinkedIn offers no undo after a reload. A job
+        that search does not list on its first page is an error, since an
+        already dismissed job and a search that missed it look the same.
+
+        Args:
+            job_id: LinkedIn job ID (e.g., "4252026496", "3856789012")
+            ctx: FastMCP context for progress reporting
+
+        Returns:
+            Dict with url (the search), job_id, keywords (the searched title
+            and company), dismissed (true) and already_dismissed, true when
+            the card was already dismissed.
+        """
+        extractor = await get_ready_extractor(ctx, tool_name="dismiss_job")
+        logger.info("Dismissing job %s", job_id)
+
+        await ctx.report_progress(progress=0, total=100, message="Opening job posting")
+
+        result = await extractor.dismiss_job(job_id)
 
         await ctx.report_progress(progress=100, total=100, message="Complete")
 

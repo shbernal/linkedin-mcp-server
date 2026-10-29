@@ -4,10 +4,13 @@ from urllib.parse import quote
 
 import pytest
 
+from linkedin_mcp_server.core.exceptions import InvalidReferenceError
 from linkedin_mcp_server.linkedin.job_policy import (
     dropped_filters_section_error,
     employer_apply_url,
     label_similar_jobs,
+    normalize_dismiss_ids,
+    parse_posting_title,
     reconcile_search_references,
     route,
     same_job_search,
@@ -242,6 +245,60 @@ class TestEmployerApplyUrl:
         url = "https://jobs.example.com/acme%20jobs/1?source=some%20board"
 
         assert employer_apply_url(url) == url
+
+
+class TestParsePostingTitle:
+    def test_reads_the_card_title_and_company(self):
+        assert parse_posting_title(
+            "AI & Automation Engineer / Sales Focus | Malt | LinkedIn"
+        ) == ("AI & Automation Engineer / Sales Focus", "Malt")
+
+    def test_a_card_title_holding_the_separator_splits_from_the_right(self):
+        assert parse_posting_title("Engineer | Platform | Acme | LinkedIn") == (
+            "Engineer | Platform",
+            "Acme",
+        )
+
+    def test_the_unread_count_prefix_is_dropped(self):
+        assert parse_posting_title("(3) Product Manager | Acme | LinkedIn") == (
+            "Product Manager",
+            "Acme",
+        )
+        assert parse_posting_title("(99+) Engineer | Acme | LinkedIn") == (
+            "Engineer",
+            "Acme",
+        )
+
+    def test_other_titles_are_not_a_posting(self):
+        for title in [
+            "LinkedIn",
+            "(3) LinkedIn",
+            "Jobs | LinkedIn",
+            "Engineer | Acme | Indeed",
+            " | Acme | LinkedIn",
+            "Engineer |  | LinkedIn",
+            "",
+        ]:
+            assert parse_posting_title(title) is None, title
+
+
+class TestNormalizeDismissIds:
+    def test_references_become_ids_once_each_in_order(self):
+        assert normalize_dismiss_ids(
+            [
+                "222",
+                "/jobs/view/111/",
+                " 222 ",
+                "https://www.linkedin.com/jobs/view/333/",
+            ]
+        ) == ["222", "111", "333"]
+
+    def test_none_is_nothing_to_dismiss(self):
+        assert normalize_dismiss_ids(None) == []
+
+    def test_an_id_that_is_not_a_jobs_is_refused(self):
+        with pytest.raises(InvalidReferenceError):
+            normalize_dismiss_ids(["111", "not-a-job"])
 
 
 class TestTrackerTabCount:

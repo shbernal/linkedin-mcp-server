@@ -637,6 +637,9 @@ def semantic_selector_id(selector: str) -> str:
         'main :is(a[href*="/jobs/view/"], [componentkey^="job-card-component-ref-"])': (
             "job_tracker_cards"
         ),
+        'li[data-occludable-job-id], [componentkey^="job-card-component-ref-"]': (
+            "job_search_cards"
+        ),
     }
     if selector in selectors:
         return selectors[selector]
@@ -702,6 +705,7 @@ def semantic_program_id(program: str) -> str:
         ("names[0][0].setAttribute(mark", "thread_options"),
         ("archiveItems[0].setAttribute(mark", "thread_menu_items"),
         ("addedTotal: added.length", "thread_menu_survey"),
+        ("result.dismiss = dismiss.length", "job_search_card"),
         ("return {ids: ids, scoped", "job_ids"),
         ("promoted.push(id)", "job_promoted_ids"),
         ("signals.bounded && (signals.easy_apply", "job_apply_ready"),

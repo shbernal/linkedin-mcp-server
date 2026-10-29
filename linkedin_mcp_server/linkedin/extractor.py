@@ -191,6 +191,8 @@ class LinkedInExtractor:
         easy_apply: bool = False,
         sort_by: str | None = None,
         tool_timeout: float = DEFAULT_TOOL_TIMEOUT_SECONDS,
+        start: int = 0,
+        dismiss_ids: list[str] | None = None,
     ) -> dict[str, Any]:
         """Search for jobs with pagination and job ID extraction."""
         return await self._jobs.search_jobs(
@@ -204,6 +206,8 @@ class LinkedInExtractor:
             easy_apply,
             sort_by,
             tool_timeout,
+            start,
+            dismiss_ids,
         )
 
     async def get_saved_jobs(
@@ -221,6 +225,10 @@ class LinkedInExtractor:
     ) -> dict[str, Any]:
         """Move a job from one job-tracker tab to the archived one."""
         return await self._jobs.archive_job(job_id, stage)
+
+    async def dismiss_job(self, job_id: str) -> dict[str, Any]:
+        """Dismiss a job from job search through its result card."""
+        return await self._jobs.dismiss_job(job_id)
 
     async def search_people(
         self,
