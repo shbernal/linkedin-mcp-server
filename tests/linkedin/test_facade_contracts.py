@@ -53,6 +53,7 @@ TOOL_DELEGATES = {
     "get_feed": "extract_feed",
     "get_inbox": "get_inbox",
     "get_job_apply_url": "get_job_apply_url",
+    "get_easy_apply_form": "get_easy_apply_form",
     "get_job_details": "read_job",
     "get_my_profile": "get_my_profile",
     "get_person_profile": "read_person",
@@ -65,6 +66,7 @@ TOOL_DELEGATES = {
     "search_jobs": "search_jobs",
     "search_people": "search_people",
     "search_posts": "search_posts",
+    "submit_easy_apply": "submit_easy_apply",
     "send_message": "send_message",
 }
 
