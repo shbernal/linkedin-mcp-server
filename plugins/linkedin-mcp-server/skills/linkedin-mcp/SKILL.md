@@ -18,9 +18,10 @@ work, health checks, or background maintenance.
 - Never enable the plugin or its MCP server, edit the host's plugin configuration,
   or start a login flow merely because LinkedIn might be useful. If either
   component is disabled, explain that state and stop.
-- `send_message` and `connect_with_person` are write actions. Use them only when
-  the user explicitly authorizes the exact recipient and action. Confirm the
-  final message or connection note unless the user has already supplied it.
+- `send_message`, `reply_to_conversation` and `connect_with_person` are write
+  actions. Use them only when the user explicitly authorizes the
+  exact recipient and action. Confirm the final message or connection note
+  unless the user has already supplied it.
 - `archive_conversation` is a write action too: it moves a thread out of the
   user's inbox. Use it only when the user explicitly asks to archive that
   thread.
@@ -58,7 +59,8 @@ instances, clear profiles, or replace the user's browser session.
   answers by the exact labels that read returned.
 - Content: `get_feed` and `search_posts`.
 - Messages: `get_inbox`, `get_conversation`, and `search_conversations`.
-- Writes: `send_message`, `connect_with_person`, `archive_conversation`,
+- Writes: `send_message`, `reply_to_conversation` (answer an existing thread,
+  InMail included), `connect_with_person`, `archive_conversation`,
   `dismiss_job`, `submit_easy_apply`, `unsave_job` and `archive_job`, subject to
   the explicit authorization rules above.
 - Session: `get_session_status` says whether a login is saved without opening
