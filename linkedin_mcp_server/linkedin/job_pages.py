@@ -41,12 +41,16 @@ from linkedin_mcp_server.linkedin.identifiers import job_view_url
 from linkedin_mcp_server.linkedin.job_policy import (
     EASY_APPLY_DRAFT_LEFT,
     SAFETY_REDIRECT_PATH,
+    SAVED_JOBS_PAGE_SIZE,
     SCROLL_DEADLINE_MAX,
     ApplyType,
+    JobsTrackerStage,
     employer_apply_url,
+    on_tracker_stage,
     parse_posting_title,
     route,
     same_job_search,
+    tracker_stage_url,
 )
 from linkedin_mcp_server.linkedin.link_metadata import JOB_PATH_RE, build_references
 from linkedin_mcp_server.linkedin.navigation import PageNavigator
@@ -517,6 +521,157 @@ SearchCardOutcome = Literal[
 ]
 
 
+# A tracker card is found by structure and never by text: the job's own
+# overflow menu is the one visible `button[aria-expanded][aria-label]` whose
+# nearest ancestor holding a job link holds that job's links and no other
+# job's. Attribute presence only, since the label's words are locale-bound.
+# Measured on 2026-09-21: every card carries two such buttons, one of them in
+# a collapsed layout with no size, and the tabs' own dropdowns are `div`s.
+# More than one match is refused rather than guessed at, so a re-render that
+# doubles a card cannot move the click onto a neighbour.
+TRACKER_CARD_JS = (
+    r"""(opts) => {
+    const {selector, jobId, mark} = opts;
+"""
+    + _RAIL_PICK_JS
+    + r"""
+    const main = document.querySelector('main');
+    if (!main) return null;
+    const idsOf = (scope) => {
+        const ids = new Set();
+        for (const node of scope.querySelectorAll(selector)) {
+            const id = idOf(node);
+            if (id) ids.add(id);
+        }
+        return ids;
+    };
+    const visible = (el) => {
+        const box = el.getBoundingClientRect();
+        return box.width > 0 && box.height > 0;
+    };
+    for (const old of document.querySelectorAll('[' + mark + ']')) {
+        old.removeAttribute(mark);
+    }
+    const listed = idsOf(main);
+    const menus = [];
+    for (const button of main.querySelectorAll('button[aria-expanded][aria-label]')) {
+        if (!visible(button)) continue;
+        let card = button.parentElement;
+        while (card && card !== main && idsOf(card).size === 0) {
+            card = card.parentElement;
+        }
+        if (!card || card === main) continue;
+        const ids = idsOf(card);
+        if (ids.size === 1 && ids.has(jobId)) menus.push(button);
+    }
+    if (menus.length === 1) menus[0].setAttribute(mark, '');
+    return {cards: listed.size, listed: listed.has(jobId), menus: menus.length};
+}"""
+)
+
+# The item of the open overflow menu whose whole text is ``label``. The items
+# are `[role="button"]`s inside a visible `[role="menu"]`, and the text comes
+# from the locale table. Marked for the click only when exactly one matches.
+TRACKER_MENU_ITEM_JS = r"""(opts) => {
+    const {label, mark} = opts;
+    const visible = (el) => {
+        const box = el.getBoundingClientRect();
+        return box.width > 0 && box.height > 0;
+    };
+    const menus = [...document.querySelectorAll('[role="menu"]')].filter(visible);
+    const items = [];
+    for (const menu of menus) {
+        for (const item of menu.querySelectorAll('[role="button"], [role="menuitem"]')) {
+            if ((item.innerText || '').trim() === label) items.push(item);
+        }
+    }
+    if (items.length === 1) items[0].setAttribute(mark, '');
+    return {menus: menus.length, items: items.length};
+}"""
+
+# The pager under a tracker tab. LinkedIn drops `start=` from the tracker's
+# address (#764), so every page after the first is reachable only by clicking
+# its number. Numbers are numerals in every locale the account can serve,
+# unlike the "Next" beside them, so they are the only text read here. A lone
+# numeral elsewhere in the tab cannot be mistaken for a pager: a group counts
+# as one only when it offers both 1 and 2, and a page is clicked only when
+# exactly one element carries its number.
+TRACKER_PAGER_JS = r"""(opts) => {
+    const {mark, page} = opts;
+    const main = document.querySelector('main');
+    if (!main) return null;
+    const visible = (el) => {
+        const box = el.getBoundingClientRect();
+        return box.width > 0 && box.height > 0;
+    };
+    for (const old of document.querySelectorAll('[' + mark + ']')) {
+        old.removeAttribute(mark);
+    }
+    const numbered = new Map();
+    for (const el of main.querySelectorAll('button, [role="button"], a')) {
+        if (!visible(el)) continue;
+        if (!/^[0-9]{1,3}$/.test((el.innerText || '').trim())) continue;
+        const number = parseInt((el.innerText || '').trim(), 10);
+        if (!number) continue;
+        numbered.set(number, [...(numbered.get(number) || []), el]);
+    }
+    if (!numbered.has(1) || !numbered.has(2)) return {pages: [], marked: false};
+    const wanted = numbered.get(page) || [];
+    if (wanted.length === 1) wanted[0].setAttribute(mark, '');
+    return {
+        pages: [...numbered.keys()].sort((a, b) => a - b),
+        marked: wanted.length === 1,
+    };
+}"""
+
+# The attributes that tie a click to the element the read chose, set in the
+# breath before it, so a re-render in between fails the click rather than
+# landing it on another card.
+_TRACKER_MENU_MARK = "data-mcp-tracker-menu"
+_TRACKER_ITEM_MARK = "data-mcp-tracker-item"
+_TRACKER_PAGER_MARK = "data-mcp-tracker-pager"
+
+# How long a tracker tab gets to render its cards, the menu to open, the
+# pager to serve another page, and the card to leave the list once its item is
+# clicked.
+_TRACKER_READY_TIMEOUT = 10.0
+_TRACKER_MENU_TIMEOUT = 5.0
+_TRACKER_REMOVAL_TIMEOUT = 10.0
+_TRACKER_POLL = 0.25
+# How many pages of a tab one call walks. The tracker holds an account's whole
+# history, and a job it does not list is only proven absent by the last page.
+_TRACKER_MAX_PAGES = 10
+
+TrackerCardOutcome = Literal[
+    # The item was clicked and the card left the list.
+    "removed",
+    # The tab lists fewer cards than a page holds and none is this job's.
+    "absent",
+    # The pages read did not hold this job and more were left: the page
+    # budget ran out, or the pager stopped answering.
+    "beyond_first_page",
+    # The job is listed but no single overflow menu could be told to be its.
+    "no_menu",
+    # The menu opened without the item, as an applied card's has no Unsave.
+    "no_item",
+    # The item was clicked and the card stayed.
+    "not_removed",
+]
+
+
+TrackerPageMove = Literal[
+    # The pager was clicked and the list it serves changed.
+    "advanced",
+    # The pager offers no such page: the tab ends where it is.
+    "exhausted",
+    # No pager at all, so nothing says whether the tab has more pages.
+    "unpaged",
+    # The page exists but could not be shown: its number is behind an
+    # ellipsis, or the list did not change after the click.
+    "stalled",
+]
+
+
 @dataclass(frozen=True, slots=True)
 class EasyApplyFormRead:
     """A posting's apply type and, for Easy Apply, the form steps read.
@@ -581,6 +736,27 @@ def _public_step(step: dict[str, Any]) -> dict[str, Any]:
         public["progress"] = step["progress"]
     public["fields"] = step["fields"]
     return public
+
+
+@dataclass(frozen=True, slots=True)
+class TrackerListing:
+    """What one tracker tab showed of one job."""
+
+    listed: bool
+    cards: int
+
+
+@dataclass(frozen=True, slots=True)
+class TrackerCardAction:
+    """What acting on one tracker card came to, and how far the walk went.
+
+    ``pages_read`` is what a caller rechecking the tab needs: a job found on
+    the first page is proven gone by the first page, and walking the rest to
+    say so would cost a click per page on every action.
+    """
+
+    outcome: TrackerCardOutcome
+    pages_read: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -1265,6 +1441,26 @@ class JobPageReader:
     ) -> ExtractedSection:
         """Single attempt: navigate, scroll list, and extract innerText."""
         await self._navigator._navigate_to_page(url)
+        return await self._read_tracker_document(url, section_name)
+
+    async def read_shown_tracker_page(self, section_name: str) -> JobPageCapture:
+        """Read the tracker page the browser is already on.
+
+        What the pager leaves behind: a page it clicked into has no address of
+        its own, so it is read where it stands, with the same guards as a page
+        that was navigated to and no rate-limit retry, which would need a
+        navigation that would lose the page.
+        """
+        return self._captured(
+            await self._read_tracker_document(self._session.page.url, section_name)
+        )
+
+    async def _read_tracker_document(
+        self,
+        url: str,
+        section_name: str,
+    ) -> ExtractedSection:
+        """Scroll the tracker list the browser is on and extract its innerText."""
         await detect_rate_limit(self._session.page)
         # Taken after this page's own navigation, so it belongs to the
         # document about to be read rather than to the one that was left.
@@ -1519,3 +1715,167 @@ class JobPageReader:
             if found["undo"] and not found["dismiss"]:
                 return "dismissed", cards
         return "not_dismissed", cards
+
+    async def _open_tracker_stage(self, stage: JobsTrackerStage) -> None:
+        """Navigate to a tracker tab and wait for its cards to render.
+
+        Raises when the navigation ends anywhere but that tab, after offering
+        the page to the auth-barrier check, because a tab that is not the one
+        asked for holds cards that are not the ones meant. A tab with no cards
+        renders none, so the wait for a card ends in silence rather than an
+        error and the caller counts what is there.
+        """
+        await self._navigator._navigate_to_page(tracker_stage_url(stage))
+        await self._session.check_rate_limit()
+        page = self._session.page
+        if not on_tracker_stage(page.url, stage):
+            await self._navigator._raise_if_auth_barrier(page.url)
+            raise LinkedInOperationError(
+                f"The job tracker's {stage} tab navigation ended on {page.url}"
+            )
+        await self._session.dismiss_modal()
+        try:
+            await page.wait_for_selector(
+                f"main :is({_JOB_CARD_SELECTOR})",
+                # Attached rather than visible: every card is rendered twice,
+                # once in a collapsed layout with no size, and that one can
+                # come first.
+                state="attached",
+                timeout=int(_TRACKER_READY_TIMEOUT * 1000),
+            )
+        except PlaywrightTimeoutError:
+            logger.debug("No job card rendered on the tracker's %s tab", stage)
+
+    async def _find_tracker_card(self, job_id: str) -> dict[str, int | bool]:
+        """Count the tab's cards and mark ``job_id``'s overflow menu."""
+        found = await self._session.page.evaluate(
+            TRACKER_CARD_JS,
+            {
+                "selector": _JOB_CARD_SELECTOR,
+                "jobId": job_id,
+                "mark": _TRACKER_MENU_MARK,
+            },
+        )
+        if not isinstance(found, dict):
+            await self._navigator._raise_if_auth_barrier(self._session.page.url)
+            raise LinkedInOperationError(
+                "The job tracker page has no main content to read"
+            )
+        return found
+
+    async def advance_tracker_page(self, page_number: int) -> TrackerPageMove:
+        """Click the tracker's pager to show its ``page_number``-th page.
+
+        The pager is the tracker's only way forward, since the tab drops
+        `start=` from its address. Success is the list answering with other
+        jobs: the pager renders the page it is on as a number too, so a click
+        that changed nothing is indistinguishable from one that was ignored,
+        and both are reported as a stall rather than as a page.
+        """
+        pager = await self._session.page.evaluate(
+            TRACKER_PAGER_JS, {"mark": _TRACKER_PAGER_MARK, "page": page_number}
+        )
+        if not isinstance(pager, dict) or not pager["pages"]:
+            return "unpaged"
+        if not any(int(number) >= page_number for number in pager["pages"]):
+            return "exhausted"
+        if not pager["marked"]:
+            return "stalled"
+
+        before = set(await self._extract_job_ids())
+        await self._session.page.locator(f"main [{_TRACKER_PAGER_MARK}]").click(
+            timeout=5000
+        )
+        deadline = self._session.monotonic() + _TRACKER_READY_TIMEOUT
+        while self._session.monotonic() < deadline:
+            await self._session.delay(_TRACKER_POLL)
+            shown = set(await self._extract_job_ids())
+            if shown and shown != before:
+                return "advanced"
+        return "stalled"
+
+    async def read_tracker_listing(
+        self, stage: JobsTrackerStage, job_id: str, max_pages: int = _TRACKER_MAX_PAGES
+    ) -> TrackerListing:
+        """Whether a tracker tab lists ``job_id``, walking its pages.
+
+        ``cards`` counts every card seen on the way, so a caller can tell an
+        empty tab from one whose pages were all read without the job.
+        """
+        await self._open_tracker_stage(stage)
+        found = await self._find_tracker_card(job_id)
+        cards = int(found["cards"])
+        pages_read = 1
+        while not found["listed"] and pages_read < max_pages:
+            if await self.advance_tracker_page(pages_read + 1) != "advanced":
+                break
+            pages_read += 1
+            found = await self._find_tracker_card(job_id)
+            cards += int(found["cards"])
+        return TrackerListing(listed=bool(found["listed"]), cards=cards)
+
+    async def act_on_tracker_card(
+        self,
+        stage: JobsTrackerStage,
+        job_id: str,
+        item: str,
+        max_pages: int = _TRACKER_MAX_PAGES,
+    ) -> TrackerCardAction:
+        """Choose ``item`` from ``job_id``'s overflow menu on a tracker tab.
+
+        The tab's pages are walked until they hold the job or run out, since
+        the tracker drops `start=` (#764) and no address reaches a later page.
+        The card is found by structure, the item by its text from the locale
+        table, and each is clicked through a mark set the moment before.
+        Success is the card leaving the list; the caller confirms it against a
+        fresh load of the tab.
+
+        A job the walk never meets is ``absent`` only when the walk saw the
+        end of the tab. A budget that ran out, a pager that stopped answering,
+        and a full page with no pager to read past all stay
+        ``beyond_first_page``: the tab may hold the job further on.
+        """
+        await self._open_tracker_stage(stage)
+        found = await self._find_tracker_card(job_id)
+        pages_read = 1
+        while not found["listed"]:
+            if pages_read >= max_pages:
+                return TrackerCardAction("beyond_first_page", pages_read)
+            move = await self.advance_tracker_page(pages_read + 1)
+            if move == "exhausted":
+                return TrackerCardAction("absent", pages_read)
+            if move == "unpaged":
+                if int(found["cards"]) < SAVED_JOBS_PAGE_SIZE:
+                    return TrackerCardAction("absent", pages_read)
+                return TrackerCardAction("beyond_first_page", pages_read)
+            if move != "advanced":
+                return TrackerCardAction("beyond_first_page", pages_read)
+            pages_read += 1
+            found = await self._find_tracker_card(job_id)
+        if found["menus"] != 1:
+            return TrackerCardAction("no_menu", pages_read)
+
+        page = self._session.page
+        await page.locator(f"main button[{_TRACKER_MENU_MARK}]").click(timeout=5000)
+        deadline = self._session.monotonic() + _TRACKER_MENU_TIMEOUT
+        menu: dict[str, int] = {"menus": 0, "items": 0}
+        while self._session.monotonic() < deadline:
+            menu = await page.evaluate(
+                TRACKER_MENU_ITEM_JS, {"label": item, "mark": _TRACKER_ITEM_MARK}
+            )
+            if menu["items"] == 1:
+                break
+            await self._session.delay(_TRACKER_POLL)
+        if menu["items"] != 1:
+            await page.keyboard.press("Escape")
+            return TrackerCardAction(
+                "no_item" if menu["menus"] else "no_menu", pages_read
+            )
+
+        await page.locator(f"[{_TRACKER_ITEM_MARK}]").click(timeout=5000)
+        deadline = self._session.monotonic() + _TRACKER_REMOVAL_TIMEOUT
+        while self._session.monotonic() < deadline:
+            await self._session.delay(_TRACKER_POLL)
+            if not (await self._find_tracker_card(job_id))["listed"]:
+                return TrackerCardAction("removed", pages_read)
+        return TrackerCardAction("not_removed", pages_read)

@@ -108,6 +108,28 @@ def no_matching_jobs_section_error(keywords: str) -> dict[str, str]:
     }
 
 
+def tracker_page_unreachable_section_error(page_number: int) -> dict[str, str]:
+    """The ``section_errors`` entry for a tracker page the pager did not show.
+
+    The tracker has no address for its later pages, so the pager is the only
+    way to them and a pager that does not answer ends the list early. Said
+    out loud, because a short list otherwise reads as the whole tab.
+    """
+    return {
+        "error_type": "pagination_stopped",
+        "error_message": (
+            f"LinkedIn's job tracker did not show page {page_number}, so this "
+            "is only what its earlier pages hold."
+        ),
+    }
+
+
+def tracker_tab_count(text: str, label: str) -> int | None:
+    """The job count the tracker's tab strip shows beside ``label``, if any."""
+    match = re.search(rf"^{re.escape(label)} · (\d+)$", text, re.MULTILINE)
+    return int(match.group(1)) if match else None
+
+
 def dropped_offset_section_error(offset: int, landed: str) -> dict[str, str]:
     """The ``section_errors`` entry for a list that cannot be paged further.
 
@@ -278,6 +300,28 @@ SAVED_JOBS_PATHS = frozenset({"/my-items/saved-jobs", "/jobs-tracker"})
 # The tracker tabs, as LinkedIn spells them in `?stage=`. A page without the
 # parameter shows saved jobs.
 JobsTrackerStage = Literal["saved", "in_progress", "applied", "archived"]
+
+
+def tracker_stage_url(stage: JobsTrackerStage) -> str:
+    """The tracker tab listing the account's jobs at ``stage``."""
+    return f"{SAVED_JOBS_URL}?stage={stage}"
+
+
+def on_tracker_stage(url: str, stage: JobsTrackerStage) -> bool:
+    """Whether ``url`` is the tracker tab for ``stage``.
+
+    Host and parsed path rather than a substring, and the stage too: a tracker
+    that dropped it shows another tab, whose cards are not the ones asked for.
+    No parameter is the saved tab.
+    """
+    parsed = urlparse(url)
+    landed_stage = parse_qs(parsed.query).get("stage", ["saved"])[0]
+    return (
+        parsed.netloc == "www.linkedin.com"
+        and parsed.path.rstrip("/") in SAVED_JOBS_PATHS
+        and landed_stage == stage
+    )
+
 
 # The my-items lists page in 10s, unlike job search. Verified live: ?start=10
 # returns the 11th saved job, while ?start=25 lands past the end of a two-page

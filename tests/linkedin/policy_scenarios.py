@@ -519,10 +519,19 @@ async def _saved_jobs_scenario() -> dict[str, Any]:
         _root("Saved jobs page two", second_references),
     )
     page.script("evaluate:saved_job_total_pages", 2)
+    page.declare_locator("main [data-mcp-tracker-pager]", "tracker_pager")
+    page.script("evaluate:job_tracker_pager", {"pages": [1, 2], "marked": True})
+    page.script("tracker_pager.click", None)
+    first_ids = {"ids": [str(100 + index) for index in range(10)], "scoped": False}
+    second_ids = {"ids": [str(110 + index) for index in range(10)], "scoped": False}
     page.script(
         "evaluate:job_ids",
-        {"ids": [str(100 + index) for index in range(10)], "scoped": False},
-        {"ids": [str(110 + index) for index in range(10)], "scoped": False},
+        first_ids,
+        # The pager reads the list before its click and again after it: the
+        # page it served is the one the ids changed on.
+        first_ids,
+        second_ids,
+        second_ids,
     )
     extractor = _extractor(page)
     async with boundaries(recorder, clock):
@@ -534,6 +543,63 @@ async def _saved_jobs_scenario() -> dict[str, Any]:
         {"method": "get_saved_jobs", "arguments": {"max_pages": 2}},
         _complete_mapping_result(result, reference_count=len(references)),
     )
+
+
+async def _unsave_job_scenario() -> dict[str, Any]:
+    recorder = TraceRecorder("unsave_job__removed", _COMMON_ALLOWED)
+    clock = FakeClock(recorder)
+    page = _page(recorder)
+    page.goto_landings.extend(
+        [
+            "https://www.linkedin.com/jobs-tracker/?stage=saved",
+            "https://www.linkedin.com/jobs-tracker/?stage=saved",
+        ]
+    )
+    page.declare_locator("main button[data-mcp-tracker-menu]", "tracker_card_menu")
+    page.declare_locator("[data-mcp-tracker-item]", "tracker_menu_item")
+    page.script(
+        "evaluate:job_tracker_card",
+        {"cards": 3, "listed": True, "menus": 1},
+        {"cards": 2, "listed": False, "menus": 0},
+        {"cards": 2, "listed": False, "menus": 0},
+    )
+    page.script("evaluate:job_tracker_menu_item", {"menus": 1, "items": 1})
+    page.script("tracker_card_menu.click", None)
+    page.script("tracker_menu_item.click", None)
+    extractor = _extractor(page)
+    arguments = {"job_id": "123"}
+    async with boundaries(recorder, clock):
+        with recorder.context("unsave_job"):
+            result = await extractor.unsave_job(**arguments)
+    page.assert_clean()
+    return recorder.trace({"method": "unsave_job", "arguments": arguments}, result)
+
+
+async def _archive_job_scenario() -> dict[str, Any]:
+    recorder = TraceRecorder("archive_job__already_archived", _COMMON_ALLOWED)
+    clock = FakeClock(recorder)
+    page = _page(recorder)
+    page.goto_landings.extend(
+        [
+            "https://www.linkedin.com/jobs-tracker/?stage=applied",
+            "https://www.linkedin.com/jobs-tracker/?stage=archived",
+        ]
+    )
+    page.script(
+        "evaluate:job_tracker_card",
+        {"cards": 4, "listed": False, "menus": 0},
+        {"cards": 1, "listed": True, "menus": 1},
+    )
+    # A short applied tab with no pager under it: the walk ends there, and
+    # the job is looked for in the archived tab instead.
+    page.script("evaluate:job_tracker_pager", {"pages": [], "marked": False})
+    extractor = _extractor(page)
+    arguments = {"job_id": "123", "stage": "applied"}
+    async with boundaries(recorder, clock):
+        with recorder.context("archive_job"):
+            result = await extractor.archive_job(**arguments)
+    page.assert_clean()
+    return recorder.trace({"method": "archive_job", "arguments": arguments}, result)
 
 
 async def _feed_stale_scenario() -> dict[str, Any]:
@@ -1226,6 +1292,8 @@ TOOL_FACADE_METHODS = {
     "get_my_profile",
     "get_saved_jobs",
     "get_sidebar_profiles",
+    "archive_job",
+    "unsave_job",
     "read_company",
     "read_job",
     "read_person",
@@ -1266,6 +1334,8 @@ async def build_policy_traces() -> dict[str, dict[str, Any]]:
         ),
         "job-search-metadata-upgrade.json": await _job_search_upgrade_scenario(),
         "saved-jobs.json": await _saved_jobs_scenario(),
+        "unsave-job.json": await _unsave_job_scenario(),
+        "archive-job.json": await _archive_job_scenario(),
         "dismiss-job.json": await _dismiss_job_scenario(),
         "feed-stale.json": await _feed_stale_scenario(),
         "feed-response-success.json": await _feed_response_scenario(body_failure=False),
