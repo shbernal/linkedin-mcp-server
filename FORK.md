@@ -14,11 +14,8 @@ this list.
 | --- | --- | --- |
 | `unsave_job`, `archive_job` | Unsave or archive a job from the job tracker | - |
 | `get_saved_jobs` | Walks every page of a tracker tab, not just the first ten jobs | - |
-| `get_easy_apply_form` | Reads an Easy Apply form's questions without sending anything | [#1343](https://github.com/stickerdaniel/linkedin-mcp-server/pull/1343) |
 | `submit_easy_apply` | Answers and sends an Easy Apply form, in the old and the redesigned dialog | - |
 | `reply_to_conversation` | Replies on an existing message thread | [#1342](https://github.com/stickerdaniel/linkedin-mcp-server/pull/1342) |
-| `archive_conversation` | Archives a message thread | [#1354](https://github.com/stickerdaniel/linkedin-mcp-server/pull/1354) |
-| `dismiss_job` | Dismisses a job from LinkedIn job search | [#1326](https://github.com/stickerdaniel/linkedin-mcp-server/pull/1326) |
 | `search_jobs` `start` | Resumes a search from a result offset | - |
 | `search_jobs` `dismiss_ids` | Dismisses known jobs while searching | - |
 | `LINKEDIN_DEBUG_HOLD_MESSAGE_SEND` | Delays or aborts message sends, to test an unconfirmed send | never |
