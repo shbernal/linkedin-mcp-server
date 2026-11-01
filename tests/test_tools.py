@@ -145,6 +145,12 @@ def serve_extractor(monkeypatch: pytest.MonkeyPatch) -> Callable[[Any], AsyncMoc
             "job_id is not a LinkedIn id",
         ),
         (
+            "job",
+            "search_jobs",
+            {"keywords": "python", "dismiss_ids": ["111", "/feed/"]},
+            "dismiss_ids holds '/feed/'",
+        ),
+        (
             "messaging",
             "get_conversation",
             {"linkedin_username": "/feed/"},
@@ -1465,6 +1471,62 @@ class TestJobTools:
         result = await tool_fn("python", mock_context, location="Remote")
         assert "search_results" in result["sections"]
         assert "pages_visited" not in result
+
+    async def test_search_jobs_passes_on_the_offset_to_resume_from(
+        self, mock_context, serve_extractor
+    ):
+        mock_extractor = _make_mock_extractor(
+            {
+                "url": "https://www.linkedin.com/jobs/search/?keywords=python",
+                "sections": {"search_results": "Job 1"},
+            }
+        )
+
+        from linkedin_mcp_server.tools.job import register_job_tools
+
+        mcp = FastMCP("test")
+        register_job_tools(mcp)
+
+        serve_extractor(mock_extractor)
+        tool_fn = await get_tool_fn(mcp, "search_jobs")
+        await tool_fn("python", mock_context, start=37)
+
+        assert mock_extractor.search_jobs.await_args.kwargs["start"] == 37
+
+    async def test_search_jobs_passes_on_the_normalized_ids_to_dismiss(
+        self, mock_context, serve_extractor
+    ):
+        mock_extractor = _make_mock_extractor(
+            {"url": "https://www.linkedin.com/jobs/search/?keywords=python"}
+        )
+
+        from linkedin_mcp_server.tools.job import register_job_tools
+
+        mcp = FastMCP("test")
+        register_job_tools(mcp)
+
+        serve_extractor(mock_extractor)
+        tool_fn = await get_tool_fn(mcp, "search_jobs")
+        await tool_fn(
+            "python",
+            mock_context,
+            dismiss_ids=["/jobs/view/111/", "222", "111"],
+        )
+
+        kwargs = mock_extractor.search_jobs.await_args.kwargs
+        assert kwargs["dismiss_ids"] == ["111", "222"]
+
+    async def test_search_jobs_is_not_read_only(self):
+        """dismiss_ids writes to the account, so a replay is not free."""
+        from linkedin_mcp_server.tools.job import register_job_tools
+
+        mcp = FastMCP("test")
+        register_job_tools(mcp)
+
+        tool = await mcp.get_tool("search_jobs")
+        assert tool is not None and tool.annotations is not None
+        assert tool.annotations.read_only_hint is False
+        assert tool.annotations.destructive_hint is True
 
     async def test_search_jobs_is_bounded_by_the_registered_timeout(
         self, mock_context, serve_extractor
