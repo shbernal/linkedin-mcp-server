@@ -1,0 +1,774 @@
+"""Browser-DOM tests for the redesigned Easy Apply dialog.
+
+The unit suite mocks ``page.evaluate``, so the programs behind reading and
+answering the form never execute there. These run the whole walk against a
+synthetic posting in headless chromium, with the navigation stubbed. Its dialog
+imitates the one measured on 2026-09-25 (`docs/easy-apply-markup.md`): a native
+modal `<dialog>` opened by a button, labels in four shapes, required marked by
+an attribute or only by a `*`, errors as loose paragraphs, checkboxes that take
+a click only on their `role` wrapper, an upload that makes its file input on
+click and leaves a toast over the footer, and footer buttons with nothing to
+find them by. It carries none of LinkedIn's classes, so it is a claim about
+which signals are read and written, not about LinkedIn's layout.
+
+Skipped automatically when chromium is not installed; run locally after
+``uv run patchright install chromium --no-shell``.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+from unittest.mock import AsyncMock, patch
+
+import asyncio
+import json
+
+import anyio
+import pytest
+from patchright.async_api import async_playwright
+
+from linkedin_mcp_server.linkedin import job_pages
+from linkedin_mcp_server.linkedin.content import PageContentReader
+from linkedin_mcp_server.linkedin.job_pages import (
+    EasyApplyFormRead,
+    EasyApplySubmitRead,
+    JobPageReader,
+)
+from linkedin_mcp_server.linkedin.navigation import PageNavigator
+from linkedin_mcp_server.linkedin.session import PageSession
+from linkedin_mcp_server.linkedin.text import JOB_APPLY_EN_US
+
+#: CI uses ``--dist loadgroup``. Keep every test that launches Chromium on one
+#: worker so browser startups cannot compete with the DOM cases' wall-clock
+#: timers.
+pytestmark = [
+    pytest.mark.browser_dom,
+    pytest.mark.xdist_group("browser_runtime"),
+]
+
+JOB_URL = "https://www.linkedin.com/jobs/view/123/"
+
+
+def counter(control_id: str, used: int, limit: int) -> str:
+    return (
+        f'<div data-testid="text-input-helper-text" id="{control_id}-info"><div>'
+        f'<p aria-live="polite" aria-atomic="true">'
+        f'<span aria-hidden="true">{used}/{limit}</span>'
+        f"<span>{used} of {limit} characters</span></p></div></div>"
+    )
+
+
+CONTACT: dict[str, Any] = {
+    "title": "Contact info",
+    "required": ["«r3»"],
+    "body": (
+        '<div componentkey="easyApplyFieldFocus_ea.q::1::FIRST_NAME::firstName.validation">'
+        '<label for="«r1»"><div>First name*</div></label>'
+        '<div><input required id="«r1»" type="text" aria-describedby="«r1»-info" '
+        'value="Ada "></div>' + counter("«r1»", 9, 100) + "</div>"
+        '<div><div><label for="«r2»"><div>Phone country code*</div></label>'
+        '<div><select id="«r2»" required><option value="es">Spain (+34)</option>'
+        '<option value="fr" selected>France (+33)</option></select></div></div>'
+        '<div componentkey="easyApplyFieldFocus_ea.q::3::PHONE_MOBILE::phoneNumber.validation">'
+        '<label for="«r3»"><div>Mobile phone number*</div></label>'
+        '<div><input required id="«r3»" type="tel" aria-describedby="«r3»-info" '
+        'value="%(phone)s"></div></div></div>'
+        '<div componentkey="easyApplyFieldFocus_ea.q::4::UNKNOWN::value.validation">'
+        '<p>Location (city)</p><div role="status" aria-live="polite"></div>'
+        '<div><div><input id="«r4»" data-testid="typeahead-input" autocomplete="off" '
+        'aria-autocomplete="list" placeholder="Enter city or location" value="">'
+        "</div></div></div>"
+    ),
+}
+
+# As measured: the title sits in a sibling before the fieldset's parent, and
+# that parent also holds the next question. The first card is in the shape of
+# 2026-09-25, the second in that of 2026-10-14: no role wrapper, the file name
+# on the input and on a plain div around it.
+RESUME: dict[str, Any] = {
+    "title": "",
+    "required": [],
+    "body": (
+        "<div><div><p>Resume*</p><p>Select or upload a resume</p></div><div>"
+        '<fieldset aria-describedby="error-message-r5" role="radiogroup"><div>'
+        '<div id="easyApplyUploadedResumeRef"></div><div>'
+        '<div><div><div role="button" tabindex="0"><p>PDF</p><p><span>old.pdf</span>'
+        '</p></div></div><div role="radio" tabindex="0" aria-label="old.pdf" '
+        'aria-checked="true"><div aria-label="old.pdf">'
+        '<input id="«r5»" type="radio" checked name="resume" class="covered">'
+        '<label for="«r5»"></label></div></div></div>'
+        '<div><div><div role="button" tabindex="0"><p>PDF</p><p><span>older.pdf</span>'
+        '</p><p>10/9/2026</p></div></div><div><div aria-label="older.pdf">'
+        '<input id="_r_g_" aria-label="older.pdf" tabindex="0" type="radio" '
+        'name="resume" class="bare"><label for="_r_g_"></label></div></div></div>'
+        "</div></div></fieldset>"
+        '<div><button type="button" id="upload">Upload resume</button></div>'
+        '<div componentkey="easyApplyFieldFocus_ea_validation_p1_0_7">'
+        '<div><input id="«r6»" aria-label="Headline" type="text" '
+        'aria-describedby="«r6»-info" value=""></div>'
+        + counter("«r6»", 0, 127)
+        + "</div></div></div>"
+    ),
+}
+
+QUESTIONS: dict[str, Any] = {
+    "title": "Additional Questions",
+    "required": ["«r7»", "«r8»", "«r9»"],
+    "body": (
+        "<div><div><p>Notice Period*</p>"
+        '<div componentkey="easyApplyFieldFocus_ea_validation_p4_0_1">'
+        '<div><input required id="«r7»" aria-label="Notice Period" type="text" '
+        'aria-describedby="«r7»-info" value="%(notice)s"></div>'
+        + counter("«r7»", 0, 127)
+        + "</div></div>"
+        "<div><p>Spoken Languages*</p><div>"
+        '<textarea id="«r8»" aria-label="Spoken Languages" required rows="4" '
+        'aria-describedby="«r8»-info" '
+        'componentkey="easyApplyFieldFocus_ea_validation_p4_0_2">%(languages)s</textarea>'
+        "</div></div>"
+        # As measured: the consent's policy link follows its wrapper, in a
+        # container of their own.
+        '<div><div componentkey="easyApplyFieldFocus_ea_validation_p4_0_3">'
+        "<p>Personal data consent*</p>"
+        '<fieldset aria-describedby="error-message-r9"><div>'
+        '<div role="checkbox" tabindex="0" aria-checked="%(consented)s"><div><div>'
+        '<input id="«r9»" tabindex="-1" type="checkbox" class="covered" %(consent)s>'
+        '<label for="«r9»"></label></div><p>I consent to the processing of my data.</p>'
+        "</div></div></div></fieldset></div>"
+        '<p><a href="https://example.com/privacy.pdf">Privacy Policy</a></p></div>'
+        # As measured: every option's wrapper is labelled with the question.
+        '<div componentkey="easyApplyFieldFocus_ea_validation_p4_0_4">'
+        "<p>What is your level in English?*</p>"
+        '<fieldset aria-describedby="error-message-q0" role="radiogroup"><div>'
+        '<div role="radio" tabindex="0" aria-label="What is your level in English?" '
+        'aria-checked="false"><div><div><input id="«q1»" tabindex="-1" type="radio" '
+        'name="english" class="covered"><label for="«q1»"></label></div>'
+        "<div><p>Native speaker</p></div></div></div>"
+        '<div role="radio" tabindex="0" aria-label="What is your level in English?" '
+        'aria-checked="false"><div><div><input id="«q2»" tabindex="-1" type="radio" '
+        'name="english" class="covered"><label for="«q2»"></label></div>'
+        "<div><p>Fluent</p></div></div></div>"
+        "</div></fieldset></div>"
+        # As measured on 2026-10-14: no wrapper, and every option's input is
+        # labelled with the question; its text sits beside it.
+        '<div componentkey="easyApplyFieldFocus_ea_validation_p4_0_5">'
+        "<p>What is your English Proficiency?*</p>"
+        '<fieldset aria-describedby="error-message-_r_v_" role="radiogroup"><div>'
+        "<div><div><div>"
+        '<input id="_r_10_" aria-label="What is your English Proficiency?" '
+        'tabindex="0" type="radio" name="radio-group-_r_v_" class="bare">'
+        '<label for="_r_10_"></label></div>'
+        "<div><p>I don't speak English</p></div></div></div>"
+        "<div><div><div>"
+        '<input id="_r_11_" aria-label="What is your English Proficiency?" '
+        'tabindex="0" type="radio" name="radio-group-_r_v_" class="bare">'
+        '<label for="_r_11_"></label></div>'
+        "<div><p>C1: I understand nearly everything.</p></div></div></div>"
+        "<div><div><div>"
+        '<input id="_r_12_" aria-label="What is your English Proficiency?" '
+        'tabindex="0" type="radio" name="radio-group-_r_v_" class="bare">'
+        '<label for="_r_12_"></label></div>'
+        "<div><p>I am a native speaker</p></div></div></div>"
+        "</div></fieldset></div></div>"
+    ),
+}
+
+FOLLOW = (
+    '<div role="checkbox" tabindex="0" aria-label="Follow Acme to stay up to date" '
+    'aria-checked="true"><div><div><input id="«r10»" tabindex="-1" type="checkbox" '
+    'class="covered" checked><label for="«r10»"></label></div>'
+    "<p>Follow Acme to stay up to date</p></div></div>"
+)
+
+REVIEW: dict[str, Any] = {
+    "title": "",
+    "required": [],
+    "body": (
+        "<div><h3>Review your application</h3>"
+        "<p>The employer will also receive a copy of your profile</p></div>"
+        "<div><h4>Contact info</h4><div><p>First name</p><p>Ada</p></div></div>"
+        + FOLLOW
+    ),
+}
+
+# Measured on 2026-10-04: a form of one page shows no progress at all, its
+# footer holds Submit alone, and the follow box sits under its questions.
+ONE_PAGE: dict[str, Any] = dict(CONTACT, body=CONTACT["body"] + FOLLOW, bare=True)
+
+FILLED = {
+    "phone": "600000000",
+    "notice": "2 weeks",
+    "languages": "German",
+    "consent": "checked",
+    "consented": "true",
+}
+EMPTY = {
+    "phone": "",
+    "notice": "",
+    "languages": "",
+    "consent": "",
+    "consented": "false",
+}
+
+
+def pages(values: dict[str, str], *pages: dict[str, Any]) -> list[dict[str, Any]]:
+    return [dict(page, body=page["body"] % values) for page in pages]
+
+
+# The posting, its Easy Apply button, and a dialog that behaves like the one
+# measured. Every click that reaches it is logged on `window.log`.
+DIALOG_SCRIPT = r"""
+const PAGES = %s;
+window.log = [];
+const style = document.createElement('style');
+// The measured inputs took no click of their own: only their wrapper did.
+style.textContent = '.covered { pointer-events: none; }'
+    // Measured on 2026-10-14: an input with no role wrapper has no box at all,
+    // and its label is what shows.
+    + ' .bare { position: absolute; width: 0; height: 0; opacity: 0; pointer-events: none; }'
+    + ' .bare + label { display: block; width: 24px; height: 20px; }'
+    + ' section.toasts:has([role="alert"]) { position: fixed; left: 0; right: 0; bottom: 0; height: 200px;'
+    + ' background: white; z-index: 10; }';
+document.head.appendChild(style);
+const dialog = document.createElement('dialog');
+dialog.setAttribute('data-testid', 'dialog');
+dialog.setAttribute('aria-labelledby', 'dialog-header');
+document.body.appendChild(dialog);
+let index = 0;
+const render = () => {
+    const page = PAGES[index];
+    const done = Math.floor(((index + 1) / PAGES.length) * 100);
+    const last = index === PAGES.length - 1;
+    const forward = last ? 'Submit application'
+        : index === PAGES.length - 2 ? 'Review' : 'Next';
+    dialog.innerHTML = '<button type="button" aria-label="Dismiss"></button>'
+        + '<div data-testid="dialog-content"><h2 id="dialog-header">Apply to Acme</h2>'
+        + '<div data-sdui-screen="com.linkedin.sdui.flagshipnav.jobs.easyapply.EasyApply">'
+        + (page.bare ? '' : `<div><div id="pct">${done} percent complete</div>`
+            + '<div aria-labelledby="pct"><svg role="progressbar" aria-valuemin="0"'
+            + ` aria-valuemax="100" aria-valuenow="${done}"></svg>`
+            + `</div><p>${index + 1}/${PAGES.length} pages</p></div>`)
+        + '<div data-testid="lazy-column"><div>'
+        + (page.title ? `<p>${page.title}</p>` : '') + page.body + '</div></div>'
+        + '<div><footer>'
+        + (page.back || !(index === 0 || last) ? '<button type="button">Back</button>' : '')
+        + `<button type="button">${forward}</button>`
+        + '</footer></div></div></div>'
+        + '<section class="toasts"><h2 data-testid="toasts-title">0 notifications</h2></section>';
+    for (const wrapper of dialog.querySelectorAll('[role="checkbox"], [role="radio"]')) {
+        wrapper.addEventListener('click', () => {
+            const input = wrapper.querySelector('input');
+            if (input.type === 'radio') {
+                for (const other of dialog.querySelectorAll(`[name="${input.name}"]`)) {
+                    other.checked = false;
+                    other.closest('[role="radio"]').setAttribute('aria-checked', 'false');
+                }
+                input.checked = true;
+            } else {
+                input.checked = !input.checked;
+            }
+            wrapper.setAttribute('aria-checked', String(input.checked));
+            window.log.push(input.checked ? `check ${input.id}` : `uncheck ${input.id}`);
+            // Measured: the box comes back re-mounted, under React's next id.
+            const label = wrapper.querySelector(`label[for="${input.id}"]`);
+            input.id = input.id.replace('»', '+»');
+            if (label) label.htmlFor = input.id;
+        });
+    }
+    // A radio with no wrapper takes the click through its label.
+    for (const input of dialog.querySelectorAll('input[type="radio"]')) {
+        if (input.closest('[role="radio"]')) continue;
+        input.addEventListener('click', () => window.log.push(`check ${input.id}`));
+    }
+    const upload = dialog.querySelector('#upload');
+    if (upload) upload.addEventListener('click', () => {
+        window.log.push('upload');
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.style.display = 'none';
+        document.body.appendChild(input);
+        input.addEventListener('change', () => {
+            const name = input.files[0].name;
+            for (const other of dialog.querySelectorAll('[name="resume"]')) {
+                other.checked = false;
+                other.closest('[role="radio"]')?.setAttribute('aria-checked', 'false');
+            }
+            dialog.querySelector('#easyApplyUploadedResumeRef').innerHTML =
+                `<div role="radio" aria-label="${name}" aria-checked="true">`
+                + `<input id="«r11»" type="radio" checked name="resume" class="covered">`
+                + '<label for="«r11»"></label></div>';
+            const toasts = dialog.querySelector('section.toasts');
+            toasts.innerHTML = '<h2 data-testid="toasts-title">1 notification</h2>'
+                + '<div role="alert"><p>Resume uploaded successfully</p>'
+                + '<button type="button" aria-label="Dismiss"></button></div>';
+            toasts.querySelector('button').addEventListener('click', () => {
+                window.log.push('toast');
+                toasts.innerHTML = '<h2 data-testid="toasts-title">0 notifications</h2>';
+            });
+        });
+        input.click();
+    });
+    const buttons = dialog.querySelectorAll('footer button');
+    buttons[buttons.length - 1].addEventListener('click', () => {
+        if (last) {
+            window.log.push('submit');
+            dialog.close();
+            dialog.remove();
+            const sent = document.createElement('dialog');
+            sent.textContent = 'Your application was sent to Acme';
+            document.body.appendChild(sent);
+            sent.showModal();
+            return;
+        }
+        window.log.push('next');
+        let valid = true;
+        for (const id of page.required) {
+            // By prefix: a clicked box has been re-mounted under a new id.
+            const el = dialog.querySelector(`[id^="${id.slice(0, -1)}"]`);
+            if (el.type === 'checkbox' ? el.checked : el.value) continue;
+            valid = false;
+            const error = document.createElement('p');
+            error.textContent = 'This field is required';
+            if (el.type === 'checkbox') {
+                el.closest('fieldset').after(error);
+            } else if (el.tagName === 'INPUT') {
+                let helper = dialog.querySelector(`[id="${id}-info"]`);
+                if (!helper) {
+                    helper = document.createElement('div');
+                    helper.id = `${id}-info`;
+                    el.parentElement.after(helper);
+                }
+                helper.prepend(error);
+            }
+        }
+        if (valid) setTimeout(() => { index += 1; render(); }, 100);
+    });
+};
+document.querySelector('main button').addEventListener('click', () => {
+    window.log.push('open');
+    setTimeout(() => { render(); dialog.showModal(); }, 100);
+});
+dialog.addEventListener('cancel', (event) => {
+    event.preventDefault();
+    window.log.push('escape');
+    if (window.stuck) return;
+    const prompt = document.createElement('dialog');
+    prompt.setAttribute('data-testid', 'dialog');
+    prompt.innerHTML = '<button type="button" aria-label="Dismiss"></button>'
+        + '<div data-testid="dialog-content"><div><h2>Save this application?</h2>'
+        + '<p>If you choose to not save, your application will be discarded.</p>'
+        + '<div><button type="button">Discard</button>'
+        + '<button type="button">Save</button></div></div></div>';
+    document.body.appendChild(prompt);
+    const [discard, save] = prompt.querySelectorAll('[data-testid="dialog-content"] button');
+    discard.addEventListener('click', () => {
+        window.log.push('discard');
+        prompt.remove();
+        dialog.close();
+        dialog.remove();
+    });
+    save.addEventListener('click', () => window.log.push('save'));
+    prompt.showModal();
+});
+"""
+
+EASY_APPLY_BUTTON = (
+    '<button type="button" aria-label="Easy Apply to this job">'
+    "<span>Easy Apply</span></button>"
+)
+
+
+def posting(steps: list[dict], *, stuck: bool = False) -> str:
+    return (
+        "<main>"
+        f"<h1>AI Engineer</h1><p>Acme</p>{EASY_APPLY_BUTTON}"
+        "<h2>About the job</h2><p>Build agents.</p>"
+        '<a href="https://www.linkedin.com/jobs/view/456/">'
+        "<p>Another role</p><p>Easy Apply</p></a>"
+        "</main>"
+        f"<script>window.stuck = {'true' if stuck else 'false'};"
+        f"{DIALOG_SCRIPT % json.dumps(steps)}</script>"
+    )
+
+
+@pytest.fixture
+async def dom_page():
+    async with async_playwright() as playwright:
+        try:
+            browser = await playwright.chromium.launch(
+                channel="chromium", headless=True
+            )
+            page = await browser.new_page()
+        except Exception as exc:  # pragma: no cover - environment dependent
+            pytest.skip(f"chromium unavailable: {exc}")
+        await page.route(
+            "**/*",
+            lambda route: route.fulfill(
+                status=200, content_type="text/html", body="<p>ok</p>"
+            ),
+        )
+        try:
+            yield page
+        finally:
+            await browser.close()
+
+
+@pytest.fixture(autouse=True)
+def _short_waits(monkeypatch):
+    monkeypatch.setattr(job_pages, "_APPLY_READY_TIMEOUT", 1.0)
+    monkeypatch.setattr(job_pages, "_EASY_APPLY_OPEN_TIMEOUT", 2.0)
+    monkeypatch.setattr(job_pages, "_EASY_APPLY_STEP_TIMEOUT", 2.0)
+    monkeypatch.setattr(job_pages, "_EASY_APPLY_SET_TIMEOUT", 1.0)
+    monkeypatch.setattr(job_pages, "_EASY_APPLY_DISCARD_TIMEOUT", 1.0)
+    monkeypatch.setattr(job_pages, "_EASY_APPLY_UPLOAD_TIMEOUT", 3.0)
+    monkeypatch.setattr(job_pages, "_EASY_APPLY_CONFIRMATION_TIMEOUT", 1.0)
+
+
+async def reader_for(page, html: str) -> JobPageReader:
+    await page.goto(JOB_URL)
+    await page.set_content(html)
+    session = PageSession(page)
+    return JobPageReader(session, PageNavigator(session), PageContentReader(session))
+
+
+async def read(page, html: str) -> EasyApplyFormRead:
+    """Serve ``html`` as the posting and read its form the way the workflow does."""
+    reader = await reader_for(page, html)
+    with patch.object(reader._navigator, "_navigate_to_page", new_callable=AsyncMock):
+        return await reader.read_easy_apply_form(JOB_URL, "123", JOB_APPLY_EN_US)
+
+
+async def submit(
+    page, html: str, answers: dict[str, Any], *, confirm_submit: bool = False
+) -> EasyApplySubmitRead:
+    reader = await reader_for(page, html)
+    with patch.object(reader._navigator, "_navigate_to_page", new_callable=AsyncMock):
+        return await reader.submit_easy_apply(
+            JOB_URL, "123", JOB_APPLY_EN_US, answers, confirm_submit=confirm_submit
+        )
+
+
+async def log(page) -> list[str]:
+    """What reached the dialog, read in the page's own world where it was logged."""
+    return await page.evaluate("() => window.log", isolated_context=False)
+
+
+async def test_every_page_is_read_and_the_draft_discarded(dom_page):
+    result = await read(
+        dom_page, posting(pages(FILLED, CONTACT, RESUME, QUESTIONS, REVIEW))
+    )
+
+    assert result.type == "easy_apply"
+    assert result.complete is True
+    assert result.discarded is True
+    assert [step.get("heading") for step in result.steps] == [
+        "Contact info",
+        "Resume",
+        "Additional Questions",
+        "Review your application",
+    ]
+    assert [step["progress"] for step in result.steps] == [25, 50, 75, 100]
+    assert result.steps[0]["fields"] == [
+        {
+            "label": "First name",
+            "type": "text",
+            "required": True,
+            "value": "Ada ",
+            "max_length": 100,
+        },
+        {
+            "label": "Phone country code",
+            "type": "select",
+            "required": True,
+            "options": ["Spain (+34)", "France (+33)"],
+            "value": "France (+33)",
+        },
+        {
+            "label": "Mobile phone number",
+            "type": "tel",
+            "required": True,
+            "value": "600000000",
+        },
+        # Titled by a paragraph, not by the page's own title before it.
+        {"label": "Location (city)", "type": "typeahead", "required": False},
+    ]
+    assert result.steps[1]["fields"] == [
+        {
+            "label": "Resume",
+            "type": "radio",
+            "required": True,
+            "options": ["old.pdf", "older.pdf"],
+            "selected": ["old.pdf"],
+        },
+        {"label": "Upload resume", "type": "file", "required": False},
+        {"label": "Headline", "type": "text", "required": False, "max_length": 127},
+    ]
+    assert result.steps[2]["fields"] == [
+        {
+            "label": "Notice Period",
+            "type": "text",
+            "required": True,
+            "value": "2 weeks",
+            "max_length": 127,
+        },
+        {
+            "label": "Spoken Languages",
+            "type": "textarea",
+            "required": True,
+            "value": "German",
+        },
+        # Required by its title's asterisk alone.
+        {
+            "label": "Personal data consent",
+            "type": "checkbox",
+            "required": True,
+            "options": ["I consent to the processing of my data."],
+            "selected": ["I consent to the processing of my data."],
+        },
+        {
+            "label": "What is your level in English?",
+            "type": "radio",
+            "required": True,
+            "options": ["Native speaker", "Fluent"],
+            "selected": [],
+        },
+        {
+            "label": "What is your English Proficiency?",
+            "type": "radio",
+            "required": True,
+            "options": [
+                "I don't speak English",
+                "C1: I understand nearly everything.",
+                "I am a native speaker",
+            ],
+            "selected": [],
+        },
+    ]
+    # The follow checkbox is not a question.
+    assert result.steps[3]["fields"] == []
+    assert await log(dom_page) == [
+        "open",
+        "next",
+        "next",
+        "next",
+        "escape",
+        "discard",
+    ]
+
+
+async def test_a_long_choice_list_is_cut_by_its_own_names(dom_page, monkeypatch):
+    # The proficiency radios have no wrapper and share their aria-label, so
+    # each is named from the text beside it, which the cut has to keep.
+    monkeypatch.setattr(job_pages, "_EASY_APPLY_MAX_OPTIONS", 2)
+
+    result = await read(dom_page, posting(pages(FILLED, QUESTIONS, REVIEW)))
+
+    proficiency = result.steps[0]["fields"][-1]
+    assert proficiency["options"] == [
+        "I don't speak English",
+        "C1: I understand nearly everything.",
+    ]
+    assert proficiency["options_total"] == 3
+
+
+async def test_a_page_needing_input_ends_the_read_with_its_error(dom_page):
+    result = await read(dom_page, posting(pages(EMPTY, CONTACT, RESUME, REVIEW)))
+
+    assert result.complete is False
+    assert result.discarded is True
+    assert len(result.steps) == 1
+    assert result.steps[0]["fields"][2] == {
+        "label": "Mobile phone number",
+        "type": "tel",
+        "required": True,
+        "error": "This field is required",
+    }
+    assert await log(dom_page) == ["open", "next", "escape", "discard"]
+
+
+async def test_the_last_page_is_never_moved_on_from(dom_page):
+    result = await read(dom_page, posting(pages(FILLED, REVIEW)))
+
+    assert result.complete is True
+    assert result.steps[0]["progress"] == 100
+    assert await log(dom_page) == ["open", "escape", "discard"]
+
+
+async def test_a_dialog_that_will_not_close_is_reported(dom_page):
+    result = await read(dom_page, posting(pages(FILLED, REVIEW), stuck=True))
+
+    assert result.discarded is False
+    assert "discard" not in await log(dom_page)
+    assert "save" not in await log(dom_page)
+
+
+async def reading(page, html: str) -> asyncio.Task[EasyApplyFormRead]:
+    """Start reading the form of ``html`` once it is served, as a task."""
+    reader = await reader_for(page, html)
+
+    async def go() -> EasyApplyFormRead:
+        with patch.object(
+            reader._navigator, "_navigate_to_page", new_callable=AsyncMock
+        ):
+            return await reader.read_easy_apply_form(JOB_URL, "123", JOB_APPLY_EN_US)
+
+    return asyncio.ensure_future(go())
+
+
+async def dialog_open(page) -> bool:
+    return await page.evaluate(job_pages.EASY_APPLY_OPEN_JS)
+
+
+async def test_a_read_cancelled_while_the_dialog_opens_discards_it(dom_page):
+    # The dialog opens 100ms after the click, so this cancel lands before it.
+    task = await reading(dom_page, posting(pages(FILLED, CONTACT, REVIEW)))
+    async with asyncio.timeout(5):
+        while "open" not in (await log(dom_page) or []):
+            await asyncio.sleep(0.02)
+    assert not await dialog_open(dom_page)
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert not await dialog_open(dom_page)
+    assert await log(dom_page) == ["open", "escape", "discard"]
+
+
+async def test_a_read_past_the_tool_deadline_still_discards_the_draft(dom_page):
+    # A tool timeout is an AnyIO scope, which cancels the task again on every
+    # pass of the loop: an unshielded discard ends at its first await.
+    reader = await reader_for(
+        dom_page, posting(pages(FILLED, CONTACT, RESUME, QUESTIONS, REVIEW))
+    )
+
+    with patch.object(reader._navigator, "_navigate_to_page", new_callable=AsyncMock):
+        with pytest.raises(TimeoutError):
+            with anyio.fail_after(0.5):
+                await reader.read_easy_apply_form(JOB_URL, "123", JOB_APPLY_EN_US)
+
+    events = await log(dom_page)
+    assert "open" in events
+    assert events[-2:] == ["escape", "discard"]
+    assert not await dialog_open(dom_page)
+
+
+async def test_a_rehearsal_answers_every_page_and_sends_nothing(dom_page, tmp_path):
+    resume = tmp_path / "Acme resume.pdf"
+    resume.write_bytes(b"%PDF-1.7")
+
+    result = await submit(
+        dom_page,
+        posting(pages(EMPTY, CONTACT, RESUME, QUESTIONS, REVIEW)),
+        {
+            "First name": "Ada",
+            "Mobile phone number": "600000000",
+            "Upload resume": str(resume),
+            "Notice Period": "2 weeks",
+            "Spoken Languages": "German, Italian",
+            "Personal data consent": True,
+            "What is your level in English?": "Fluent",
+            "What is your English Proficiency?": "C1: I understand nearly everything.",
+        },
+    )
+
+    assert result.complete is True
+    assert result.submitted is False
+    assert result.discarded is True
+    assert result.follow is False
+    assert result.steps[0]["fields"][0]["value"] == "Ada"
+    assert result.steps[1]["fields"][0]["selected"] == ["Acme resume.pdf"]
+    assert result.steps[2]["fields"][2]["selected"] == [
+        "I consent to the processing of my data."
+    ]
+    assert result.steps[2]["fields"][3]["selected"] == ["Fluent"]
+    assert result.steps[2]["fields"][4]["selected"] == [
+        "C1: I understand nearly everything."
+    ]
+    # The toast over the footer is closed before Next is clicked.
+    assert await log(dom_page) == [
+        "open",
+        "next",
+        "upload",
+        "toast",
+        "next",
+        "check «r9»",
+        "check «q2»",
+        "check _r_11_",
+        "next",
+        "uncheck «r10»",
+        "escape",
+        "discard",
+    ]
+
+
+async def test_the_flag_sends_it_from_the_last_page_only(dom_page):
+    result = await submit(
+        dom_page,
+        posting(pages(FILLED, CONTACT, REVIEW)),
+        {},
+        confirm_submit=True,
+    )
+
+    assert result.submitted is True
+    assert result.confirmation == "Your application was sent to Acme"
+    assert await log(dom_page) == ["open", "next", "uncheck «r10»", "submit"]
+
+
+async def test_a_one_page_form_is_read_complete(dom_page):
+    result = await read(dom_page, posting(pages(FILLED, ONE_PAGE)))
+
+    assert result.complete is True
+    assert "progress" not in result.steps[0]
+    assert await log(dom_page) == ["open", "escape", "discard"]
+
+
+async def test_a_one_page_form_is_sent_from_its_only_page(dom_page):
+    rehearsal = await submit(dom_page, posting(pages(FILLED, ONE_PAGE)), {})
+    assert rehearsal.complete is True
+    assert rehearsal.submitted is False
+
+    result = await submit(
+        dom_page, posting(pages(FILLED, ONE_PAGE)), {}, confirm_submit=True
+    )
+
+    assert result.submitted is True
+    assert await log(dom_page) == ["open", "uncheck «r10»", "submit"]
+
+
+@pytest.mark.parametrize("confirm_submit", [False, True])
+async def test_a_last_page_without_progress_after_another_is_not_sent(
+    dom_page, confirm_submit
+):
+    """Reached from another page, its forward button could be Next as well as
+    Submit, and the rehearsal refuses it as the send would."""
+    with pytest.raises(RuntimeError, match="Nothing was sent"):
+        await submit(
+            dom_page,
+            posting(pages(FILLED, CONTACT, dict(REVIEW, bare=True, back=True))),
+            {},
+            confirm_submit=confirm_submit,
+        )
+
+    assert "submit" not in await log(dom_page)
+    assert (await log(dom_page))[-2:] == ["escape", "discard"]
+
+
+@pytest.mark.parametrize("confirm_submit", [False, True])
+async def test_a_first_page_without_progress_or_follow_box_is_not_sent(
+    dom_page, confirm_submit
+):
+    """A lone forward button is Next as long as nothing marks the last page."""
+    html = posting(pages(FILLED, dict(CONTACT, bare=True), REVIEW))
+    with pytest.raises(RuntimeError, match="Nothing was sent"):
+        await submit(dom_page, html, {}, confirm_submit=confirm_submit)
+
+    assert await log(dom_page) == ["open", "escape", "discard"]
+
+
+async def test_a_page_without_progress_or_follow_box_reads_incomplete(dom_page):
+    result = await read(
+        dom_page, posting(pages(FILLED, dict(CONTACT, bare=True), REVIEW))
+    )
+
+    assert result.complete is False
+    assert await log(dom_page) == ["open", "escape", "discard"]
