@@ -2600,6 +2600,47 @@ class TestSubmitEasyApply:
         assert "next" not in dialog.log
         assert "submit" not in dialog.log
 
+    async def test_a_checked_resume_whose_name_only_contains_the_files_is_not_it(
+        self, mock_page, tmp_path, monkeypatch
+    ):
+        # The redesigned dialog names its resumes on a radio group, and the
+        # file on the option it checks.
+        monkeypatch.setattr(job_pages_module, "_EASY_APPLY_UPLOAD_TIMEOUT", 0)
+        resume = tmp_path / "resume.pdf"
+        resume.write_bytes(b"%PDF-1.7")
+        steps = copy.deepcopy(self.QUESTIONS)
+        steps[0]["fields"] += [
+            {
+                "label": "Upload resume",
+                "type": "file",
+                "required": False,
+                "ids": ["cv"],
+            },
+            {
+                "label": "Resume",
+                "type": "radio",
+                "required": True,
+                "options": ["old-resume.pdf"],
+                "selected": ["old-resume.pdf"],
+                "ids": ["card-old"],
+            },
+        ]
+        dialog, run, reader, _, _ = self._run(mock_page, steps)
+        dialog.tear_down_reads = 99
+
+        with run:
+            with pytest.raises(InvalidAnswerError, match="did not show 'resume.pdf'"):
+                await reader.submit_easy_apply(
+                    self.URL,
+                    "123",
+                    JOB_APPLY_EN_US,
+                    {**self.ANSWERS, "Upload resume": str(resume)},
+                    confirm_submit=True,
+                )
+
+        assert "next" not in dialog.log
+        assert "submit" not in dialog.log
+
     @pytest.mark.parametrize(
         ("label", "named"),
         [

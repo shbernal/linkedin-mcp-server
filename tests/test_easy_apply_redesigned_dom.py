@@ -27,6 +27,7 @@ import anyio
 import pytest
 from patchright.async_api import async_playwright
 
+from linkedin_mcp_server.core.exceptions import InvalidAnswerError
 from linkedin_mcp_server.linkedin import job_pages
 from linkedin_mcp_server.linkedin.content import PageContentReader
 from linkedin_mcp_server.linkedin.job_pages import (
@@ -194,6 +195,38 @@ REVIEW: dict[str, Any] = {
 # Measured on 2026-10-04: a form of one page shows no progress at all, its
 # footer holds Submit alone, and the follow box sits under its questions.
 ONE_PAGE: dict[str, Any] = dict(CONTACT, body=CONTACT["body"] + FOLLOW, bare=True)
+
+# The contact page with a country list longer than the read keeps, as the
+# 250-entry one measured live: the read returns its first 50 options.
+COUNTRIES = [f"Country {index:02d} (+{index})" for index in range(60)]
+WITH_COUNTRY: dict[str, Any] = dict(
+    CONTACT,
+    body=CONTACT["body"].replace(
+        '<option value="es">Spain (+34)</option>'
+        '<option value="fr" selected>France (+33)</option>',
+        "".join(f"<option>{name}</option>" for name in COUNTRIES),
+    ),
+)
+assert WITH_COUNTRY["body"] != CONTACT["body"]
+
+# The questions page with a line of fine print under a question, a loose
+# paragraph after its control as the dialog's errors are: there before any
+# click, so it is no refusal.
+HINTED: dict[str, Any] = dict(
+    QUESTIONS,
+    body=QUESTIONS["body"].replace(
+        counter("«r7»", 0, 127) + "</div>",
+        counter("«r7»", 0, 127) + "</div><p>In weeks</p>",
+        1,
+    ),
+)
+assert HINTED["body"] != QUESTIONS["body"]
+
+# What the questions page needs beyond what `FILLED` prefills.
+LEVELS = {
+    "What is your level in English?": "Fluent",
+    "What is your English Proficiency?": "C1: I understand nearly everything.",
+}
 
 FILLED = {
     "phone": "600000000",
@@ -772,3 +805,70 @@ async def test_a_page_without_progress_or_follow_box_reads_incomplete(dom_page):
 
     assert result.complete is False
     assert await log(dom_page) == ["open", "escape", "discard"]
+
+
+async def test_a_country_past_the_reads_cut_is_selected(dom_page):
+    result = await submit(
+        dom_page,
+        posting(pages(FILLED, WITH_COUNTRY, REVIEW)),
+        {"Phone country code": COUNTRIES[55]},
+    )
+
+    assert result.complete is True
+    country = next(
+        field
+        for field in result.steps[0]["fields"]
+        if field["label"] == "Phone country code"
+    )
+    assert country["value"] == COUNTRIES[55]
+    assert country["options_total"] == 60
+    assert "all_options" not in country
+
+
+async def test_a_country_the_whole_list_lacks_refuses_before_next(dom_page):
+    with pytest.raises(InvalidAnswerError, match="No option is labelled 'Atlantis'"):
+        await submit(
+            dom_page,
+            posting(pages(FILLED, WITH_COUNTRY, REVIEW)),
+            {"Phone country code": "Atlantis"},
+        )
+
+    assert await log(dom_page) == ["open", "escape", "discard"]
+
+
+async def test_fine_print_on_the_page_next_reaches_does_not_stop_the_run(dom_page):
+    result = await submit(
+        dom_page, posting(pages(FILLED, CONTACT, HINTED, REVIEW)), LEVELS
+    )
+
+    assert result.complete is True
+    notice = next(
+        field
+        for field in result.steps[1]["fields"]
+        if field["label"] == "Notice Period"
+    )
+    assert "error" not in notice
+    assert (await log(dom_page)).count("next") == 2
+
+
+@pytest.mark.parametrize(
+    ("label", "answer", "kind"),
+    [("Notice Period", "", "text"), ("Personal data consent", False, "checkbox")],
+)
+async def test_a_required_field_an_answer_empties_refuses_before_next(
+    dom_page, label, answer, kind
+):
+    # The consent box is required only by the `*` ending its title.
+    with pytest.raises(
+        InvalidAnswerError, match=rf"requires an answer for: {label} \({kind}\)\."
+    ):
+        await submit(
+            dom_page,
+            posting(pages(FILLED, CONTACT, QUESTIONS, REVIEW)),
+            {**LEVELS, label: answer},
+        )
+
+    events = await log(dom_page)
+    assert events.count("next") == 1
+    assert "submit" not in events
+    assert events[-2:] == ["escape", "discard"]
