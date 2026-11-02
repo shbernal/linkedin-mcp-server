@@ -1,0 +1,13 @@
+# The branches merged into jobsearch, in merge order: a branch, then its
+# upstream pull request number, or - when it has none. A stacked branch comes
+# after the branch it is cut from. A branch that a later one contains can come
+# in through that later merge instead of its own. local/ branches never go
+# upstream and merge last.
+feature/724-job-tracker-actions -
+feature/tracker-pagination -
+feature/easy-apply-submit 1427
+feature/easy-apply-dialog -
+feature/search-jobs-start -
+feature/search-jobs-dismiss-ids -
+local/hold-message-send -
+local/fork-meta -
