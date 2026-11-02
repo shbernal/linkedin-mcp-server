@@ -5,7 +5,7 @@
 # upstream and merge last.
 feature/724-job-tracker-actions -
 feature/tracker-pagination -
-feature/easy-apply-submit -
+feature/easy-apply-submit 1427
 feature/easy-apply-dialog -
 feature/search-jobs-start -
 feature/search-jobs-dismiss-ids -
