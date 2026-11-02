@@ -71,7 +71,7 @@ Use code <strong>FOUNDING20</strong> for 20% off your first year. <a href="https
 | `get_company_posts` | Read recent posts from a company's feed, with links to the original posts. |
 | `search_companies` | Find companies by keyword and return links to their LinkedIn profiles. |
 | `get_company_employees` | Find company employees, optionally filtered by name, title, or skill. |
-| `search_jobs` | Find job postings by keyword and location, with job IDs for reading details. |
+| `search_jobs` | Find job postings by keyword and location, with job IDs for reading details, optionally dismissing the known ones it meets. |
 | `get_saved_jobs` | List your saved job postings, with job IDs for looking up their details. |
 | `unsave_job` | Remove a job from your saved jobs through the job tracker, closed postings included. |
 | `archive_job` | Move a job to the job tracker's archived tab. |
