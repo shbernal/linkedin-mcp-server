@@ -191,6 +191,8 @@ class LinkedInExtractor:
         easy_apply: bool = False,
         sort_by: str | None = None,
         tool_timeout: float = DEFAULT_TOOL_TIMEOUT_SECONDS,
+        start: int = 0,
+        dismiss_ids: list[str] | None = None,
     ) -> dict[str, Any]:
         """Search for jobs with pagination and job ID extraction."""
         return await self._jobs.search_jobs(
@@ -204,6 +206,8 @@ class LinkedInExtractor:
             easy_apply,
             sort_by,
             tool_timeout,
+            start,
+            dismiss_ids,
         )
 
     async def get_saved_jobs(
