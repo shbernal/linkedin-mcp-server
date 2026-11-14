@@ -85,6 +85,16 @@
       "program_digest": "1f723d264093"
     },
     {
+      "arg": {
+        "mark": "data-mcp-tracker-pager",
+        "page": 2
+      },
+      "call": "archive_job",
+      "kind": "evaluate",
+      "operation": "job_tracker_pager",
+      "program_digest": "03c4d4b69eba"
+    },
+    {
       "call": "archive_job",
       "kind": "sleep",
       "reason": "sleep",
