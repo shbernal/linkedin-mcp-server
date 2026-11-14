@@ -96,6 +96,27 @@ JOB_POSTING_EN_US = _JOB_POSTING_TEXT["en-US"]
 
 
 @dataclass(frozen=True)
+class JobTrackerTextTable:
+    """Visible-text policy for the job tracker's per-job actions."""
+
+    # Whole visible text of the items in a tracker card's overflow menu. Each
+    # item is a `[role="button"]` with no aria-label, no href and no attribute
+    # telling it from its neighbours, and the set changes with the tab: a saved
+    # card offers Change stage, Archive, Unsave and Delete, an applied card the
+    # same without Unsave. Measured on 2026-09-21.
+    unsave_item: str
+    archive_item: str
+
+
+_JOB_TRACKER_TEXT: dict[str, JobTrackerTextTable] = {
+    "en-US": JobTrackerTextTable(unsave_item="Unsave", archive_item="Archive"),
+}
+
+# Same locale contract as `DETAIL_CAPTURE_EN_US`.
+JOB_TRACKER_EN_US = _JOB_TRACKER_TEXT["en-US"]
+
+
+@dataclass(frozen=True)
 class JobApplyTextTable:
     """Visible-text policy for reading how a job posting takes applications."""
 
